@@ -448,12 +448,12 @@ sub updateSlot
 sub getPlayers
 {
     my ($self,$steamid,$slot_name) = @_;
-   my $game = $self->{server_object}->{play_game} ;
+    my $game = $self->{server_object}->{play_game} ;
     my $command = ($game == CS2()) ? "users;status" : ($game == L4D()) ? "z_difficulty;status" : "status";
     my $server = "$self->{server_object}->{address}:$self->{server_object}->{port}";
     my $status = $self->execute($command, 1);
     return ("", -1, "", 0) unless $status;
-print "Got RCON 'status'\n";
+
     my @lines = split(/[\r\n]+/, $status);
     my %players;
     my %userid_to_slot;
@@ -560,13 +560,12 @@ print "Got RCON 'status'\n";
                 $md5->add($server);
                 $uniqueid = "BOT:" . $md5->hexdigest;
             }
+            $userid_to_slot{$userid} = $userid unless defined $userid_to_slot{$userid};
             my $uniqueid = $self->find_steamid($userid,$userid_to_slot{$userid});
             if (!defined $uniqueid && defined $steamid && defined $slot_name && $slot_name eq $userid_to_slot{$userid}."/".$name) {
                 $uniqueid = $steamid; # new player cs2
             }
             my $key = ($::g_mode eq "NameTrack") ? $name : ($::g_mode eq "LAN") ? $address : $uniqueid;
-            print "My key is $key'\n";
-
             next unless $key;
             $players{$key} = {
                 "slot"       => $userid_to_slot{$userid},
