@@ -1486,7 +1486,7 @@ sub handleIncoming
     return unless length $s_output;
     $print_addr = $s_addr;
     my($s_peerhost, $s_peerport) = split(/:/, $s_addr);
-    print "[$source] $s_output\n" if $g_debug == 3 || $g_debug == 9;
+    print "[$source] $s_output\n" if $g_debug == 2 || $g_debug == 9;
     # Proxy filter
     if (($s_output =~ /^.*PROXY Key=(.+) (.*)PROXY.+/) && $proxy_key ne "") {
         $rproxy_key = $1;
