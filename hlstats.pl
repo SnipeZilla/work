@@ -1,38 +1,15 @@
-#!/usr/bin/perl
-# HLstatsX Community Edition - Real-time player and clan rankings and statistics
-# Copyleft (L) 2008-20XX Nicholas Hastings (nshastings@gmail.com)
-# http://www.hlxcommunity.com
+# HLstatsZ - Real-time player and clan rankings and statistics
+# Originally HLstatsX Community Edition by Nicholas Hastings (2008–20XX)
+# Based on ELstatsNEO by Malte Bayer, HLstatsX by Tobias Oetzel, and HLstats by Simon Garner
 #
-# HLstatsX Community Edition is a continuation of 
-# ELstatsNEO - Real-time player and clan rankings and statistics
-# Copyleft (L) 2008-20XX Malte Bayer (steam@neo-soft.org)
-# http://ovrsized.neo-soft.org/
+# HLstats > HLstatsX > HLstatsX:CE > HLStatsZ
+# HLstatsZ continues a long lineage of open-source server stats tools for Half-Life and Source games.
+# This version is released under the GNU General Public License v2 or later.
 # 
-# ELstatsNEO is an very improved & enhanced - so called Ultra-Humongus Edition of HLstatsX
-# HLstatsX - Real-time player and clan rankings and statistics for Half-Life 2
-# http://www.hlstatsx.com/
-# Copyright (C) 2005-2007 Tobias Oetzel (Tobi@hlstatsx.com)
-#
-# HLstatsX is an enhanced version of HLstats made by Simon Garner
-# HLstats - Real-time player and clan rankings and statistics for Half-Life
-# http://sourceforge.net/projects/hlstats/
-# Copyright (C) 2001  Simon Garner
-#             
-# This program is free software; you can redistribute it and/or
-# modify it under the terms of the GNU General Public License
-# as published by the Free Software Foundation; either version 2
-# of the License, or (at your option) any later version.
-#
-# This program is distributed in the hope that it will be useful,
-# but WITHOUT ANY WARRANTY; without even the implied warranty of
-# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
-# GNU General Public License for more details.
-#
-# You should have received a copy of the GNU General Public License
-# along with this program; if not, write to the Free Software
-# Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA  02111-1307, USA.
-#
-# For support and installation notes visit http://www.hlxcommunity.com
+# For current support and updates:
+#    https://snipezilla.com
+#    https://github.com/SnipeZilla
+#    https://forums.alliedmods.net/forumdisplay.php?f=156
 
 use strict;
 no strict 'vars';
@@ -67,7 +44,6 @@ use Mojo::Server::Daemon;
 use Mojo::IOLoop::Subprocess;
 use IO::Socket::INET;
 use Socket;
-use Encode 'decode';
 use Scalar::Util qw(blessed);
 
 require "$opt_libdir/ConfigReaderSimple.pm";
@@ -82,8 +58,6 @@ do "$opt_libdir/HLstats_EventHandlers.plib";
 
 $|=1;
 Getopt::Long::Configure ("bundling");
-
-$last_trend_timestamp = 0;
 
 binmode STDIN, ":utf8";
 binmode STDOUT, ":utf8";
@@ -106,13 +80,10 @@ sub removePlayer
 {
     my ($saddr, $id, $uniqueid, $dontUpdateCount) = @_;
     my $deleteplayer = 0;
-    if(defined($g_servers{$saddr}->{"srv_players"}->{"$id/$uniqueid"}))
-    {
+    if(defined($g_servers{$saddr}->{"srv_players"}->{"$id/$uniqueid"})) {
         $deleteplayer = 1;
-    }
-    else
-    {
-        &::printEvent("400", "Bad attempted delete ($saddr) ($id/$uniqueid)",2);
+    } else {
+        printEvent("GAME", "Bad attempted delete ($saddr) ($id/$uniqueid)",3);
     }
 
     if ($deleteplayer == 1) {
@@ -129,7 +100,7 @@ sub checkBonusRound
 {
    if ($g_servers{$s_addr}->{bonusroundtime} > 0 && ($::ev_remotetime > ($g_servers{$s_addr}->{bonusroundtime_ts} + $g_servers{$s_addr}->{bonusroundtime}))) {
         if ($g_servers{$s_addr}->{bonusroundtime_state} == 1) {
-            &printEvent("SERVER", "Bonus Round Expired",2);
+            printEvent("GAME", "Bonus Round Expired",3);
         }
         $g_servers{$s_addr}->set("bonusroundtime_state",0);
     }
@@ -142,91 +113,72 @@ sub checkBonusRound
 
 sub is_number ($) { ( $_[0] ^ $_[0] ) eq '0' }
 
-sub track_hlstats_trend
-{
-    if ($last_trend_timestamp > 0) {
-        if ($last_trend_timestamp+299 < $ev_daemontime) {
-            my $query = "
-                SELECT 
-                    COUNT(*),
-                    a.game
-                FROM
-                    hlstats_Players a
-                INNER JOIN
-                    (
-                        SELECT
-                            game
-                        FROM
-                            hlstats_Servers
-                        GROUP BY
-                            game
-                    ) AS b 
-                ON
-                    a.game = b.game
-                GROUP BY
-                    a.game
-            ";
-            my $result = &execCached("get_total_player_counts", $query);
-            my $insvalues = "";
-            while ( my($total_players, $game) = $result->fetchrow_array) {
-                my $query = "
-                    SELECT
-                        SUM(kills),
-                        SUM(headshots),
-                        COUNT(serverId),
-                        SUM(act_players),
-                        SUM(max_players)
-                    FROM
-                        hlstats_Servers
-                    WHERE
-                        game=?
-                ";
-                my $data = &execCached("get_game_stat_counts", $query, &quoteSQL($game));
-                my ($total_kills, $total_headshots, $total_servers, $act_slots, $max_slots) = $data->fetchrow_array;
-                if ($max_slots > 0) {
-                    if ($act_slots > $max_slots) {
-                        $act_slots = $max_slots;
-                    }
-                }
-                if ($insvalues ne "") {
-                    $insvalues .= ",";
-                }
-                $insvalues .= "
-                    (
-                        $ev_daemontime,
-                        '".&quoteSQL($game)."',
-                        $total_players,
-                        $total_kills,
-                        $total_headshots,
-                        $total_servers,
-                        $act_slots,
-                        $max_slots
-                    )
-                ";
-            }
-            if ($insvalues ne "") {
-                &execNonQuery("
-                    INSERT INTO
-                        hlstats_Trend
-                        (
-                            timestamp,
-                            game,
-                            players,
-                            kills,
-                            headshots,
-                            servers,
-                            act_slots,
-                            max_slots
-                        )
-                        VALUES $insvalues
-                ");
-            }
-            $last_trend_timestamp = $ev_daemontime;
-            &::printEvent("HLSTATSX", "Insert new server trend timestamp", 2);
-        }
-    } else {
-        $last_trend_timestamp = $ev_daemontime;
-    }  
+our $last_trend_timestamp = 0;
+
+sub track_hlstats_trend {
+
+    # Run every 5 min
+    return if $last_trend_timestamp > 0 && $ev_daemontime < $last_trend_timestamp + 299;
+
+    # 1. total players per game
+    my $players_sql = q{
+        SELECT COUNT(*), a.game
+        FROM hlstats_Players a
+        INNER JOIN (
+            SELECT game FROM hlstats_Servers GROUP BY game
+        ) b ON a.game = b.game
+        GROUP BY a.game
+    };
+
+    my $players_sth = exec_cache("get_total_player_counts", $players_sql);
+    return unless $players_sth;
+
+    my @rows;
+    while (my ($total_players, $game) = $players_sth->fetchrow_array) {
+        # 2. per-game stats
+        my $stats_sql = q{
+            SELECT
+                SUM(kills),
+                SUM(headshots),
+                COUNT(serverId),
+                SUM(act_players),
+                SUM(max_players)
+            FROM hlstats_Servers
+            WHERE game=?
+        };
+        my $stats_sth = exec_cache("get_game_stat_counts", $stats_sql, $game);
+        next unless $stats_sth;
+
+        my ($total_kills, $total_headshots, $total_servers, $act_slots, $max_slots)
+            = $stats_sth->fetchrow_array;
+        # act_slots to max_slots
+        $act_slots = $max_slots if $max_slots && $act_slots > $max_slots;
+
+        push @rows, sprintf(
+            "(%d,%s,%d,%d,%d,%d,%d,%d)",
+            $ev_daemontime,
+            $dbh->quote($game),
+            $total_players  // 0,
+            $total_kills    // 0,
+            $total_headshots// 0,
+            $total_servers  // 0,
+            $act_slots      // 0,
+            $max_slots      // 0,
+        );
+    }
+
+    if (@rows) {
+        my $insert_sql = qq{
+            INSERT INTO hlstats_Trend
+                (timestamp, game, players, kills, headshots, servers, act_slots, max_slots)
+            VALUES
+                @{[ join ",", @rows ]}
+        };
+        exec_now($insert_sql);
+        ::printEvent("MYSQL", "Inserted server trend timestamp", 4);
+    }
+
+    $last_trend_timestamp = $ev_daemontime;
 }
 
 sub send_global_chat
@@ -267,7 +219,6 @@ sub send_global_chat
 #
 # Ran at startup to init event table queues, build initial queries, and set allowed-null columns
 #
-
 my %g_eventtable_data = ();
 
 sub buildEventInsertData
@@ -280,7 +231,7 @@ sub buildEventInsertData
         $g_eventtable_data{$table}{nullallowed} = 0;
         $g_eventtable_data{$table}{lastflush} = $ev_daemontime;
         $g_eventtable_data{$table}{query} = "
-        INSERT$insertType INTO
+        INSERT $insertType INTO
             hlstats_Events_$table
             (
                 eventTime,
@@ -305,55 +256,55 @@ sub buildEventInsertData
 #
 # Queues an event for addition to an Events table, flushing when hitting table queue limit.
 #
+sub recordEvent {
+    my ($table, $unused, @coldata) = @_;
 
-sub recordEvent
-{
-    my $table = shift;
-    my $unused = shift;
-    my @coldata = @_;
-    
-    my $value = "(FROM_UNIXTIME($::ev_unixtime),".$g_servers{$s_addr}->{'id'}.",'".quoteSQL($g_servers{$s_addr}->get_map())."'";
-    $j = 0;
-    for $i (@coldata) {
-        if ($g_eventtable_data{$table}{nullallowed} & (1 << $j) && (!defined($i) || $i eq "")) {
-            $value .= ",NULL";
-        } elsif (!defined($i)) {
-            $value .= ",''";
+    my $server    = $g_servers{$s_addr} or return;
+    my $server_id = $server->{id};
+    my $map       = $server->get_map // '';
+    my $ts        = $::ev_unixtime;  # unix seconds
+
+    my @values = ($ts, $server_id, $map);
+
+    my $nullmask = $g_eventtable_data{$table}{nullallowed} // 0;
+    for my $j (0 .. $#coldata) {
+        my $v = $coldata[$j];
+        if ($nullmask & (1 << $j)) {
+            push @values, (defined($v) && $v ne '') ? $v : undef;
         } else {
-            $value .= ",'".quoteSQL($i)."'";
+            push @values, defined($v) ? $v : '';
         }
-        $j++;
     }
-    $value .= ")";
-    
-    push(@{$g_eventtable_data{$table}{queue}}, $value);
-    
-    if (scalar(@{$g_eventtable_data{$table}{queue}}) > $g_event_queue_size)
-    {
-        flushEventTable($table);
-    }
+
+    push @{ $g_eventtable_data{$table}{queue} }, \@values;
+
+    my $limit = $g_event_queue_size || 500;
+    flushEventTable($table) if @{ $g_eventtable_data{$table}{queue} } >= $limit;
 }
 
-sub flushEventTable
-{
+sub flushEventTable {
     my ($table) = @_;
-    
-    if (scalar(@{$g_eventtable_data{$table}{queue}}) == 0)
-    {
-        return;
-    }
-    
-    my $query = $g_eventtable_data{$table}{query};
-    foreach (@{$g_eventtable_data{$table}{queue}})
-    {
-        $query .= $_.",";
-    }
-    $query =~ s/,$//;
+    my $queue_ref = $g_eventtable_data{$table}{queue};
+    return unless @$queue_ref;
+
+    my $query_prefix = $g_eventtable_data{$table}{query};
+    my $values = join(",", @$queue_ref);
+    my $full_query = $query_prefix . $values;
+
     $g_eventtable_data{$table}{queue} = [];
     $g_eventtable_data{$table}{lastflush} = $ev_daemontime;
-    execNonQuery($query);
 
+    eval {
+        exec_now($full_query);
+    };
+    if ($@) {
+        printEvent("MYSQL", "Flush failed for '$table': $@", 4);
+        # Optional: requeue or log failed batch
+    } else {
+        printEvent("MYSQL", "Flushed @{[scalar @$queue_ref]} events to '$table'", 4);
+    }
 }
+
 
 #
 # array calcSkill (int skill_mode, int killerSkill, int killerKills, int victimSkill, int victimKills, string weapon)
@@ -517,7 +468,7 @@ sub rewardTeam
     
     my $player;
     
-    &printEvent("REWARD","Rewarding team \"$team\" with \"$reward\" skill for action \"$actionid\" ...",2);
+    printEvent("REWARD", "Rewarding team \"$team\" with \"$reward\" skill for action \"$actionid\" ...",3);
     my @userlist;
     foreach $player (values(%{$g_servers{$s_addr}->{"srv_players"}})) {
         my $player_team      = $player->{team};
@@ -526,8 +477,8 @@ sub rewardTeam
             $desc = "(IGNORED) BOT: ";
         } else {
             if ($player_team eq $team) {
-                &printEvent("REWARD", $player->getInfoString() . " with \"$reward\" skill for action \"$actionid\"",2);
-                &recordEvent(
+                printEvent("REWARD", $player->getInfoString() . " with \"$reward\" skill for action \"$actionid\"",3);
+                recordEvent(
                     "TeamBonuses", 0,
                     $player->{playerid},
                     $actionid,
@@ -564,25 +515,16 @@ sub getPlayerId
 {
     my ($uniqueId) = @_;
 
-    my $query = "
-        SELECT
-            playerId
-        FROM
-            hlstats_PlayerUniqueIds
-        WHERE
-            uniqueId='" . &::quoteSQL($uniqueId) . "' AND
-            game='" . $g_servers{$s_addr}->{game} . "'
-    ";
-    my $result = &doQuery($query);
-
-    if ($result->rows > 0) {
-        my ($playerId) = $result->fetchrow_array;
-        $result->finish;
-        return $playerId;
-    } else {
-        $result->finish;
-        return 0;
+    my $row = query_now(
+        'SELECT playerId FROM hlstats_PlayerUniqueIds WHERE uniqueId = ? AND game = ? LIMIT 1',
+        $uniqueId, $g_servers{$s_addr}->{game}
+    );
+    my $pid = 0;
+    if ( $row->rows > 0 ) {
+       $pid =$row->fetchrow_array;
+       $row->finish;
     }
+    return $pid;
 }
 
 
@@ -591,7 +533,6 @@ sub getPlayerId
 #
 # Updates a player's profile information in the database.
 #
-
 sub updatePlayerProfile
 {
     my ($player, $field, $value) = @_;
@@ -599,26 +540,13 @@ sub updatePlayerProfile
         return 0;
     }
     $rcmd = $g_servers{$s_addr}->{player_command};
-    
+    $value = "" if ($value eq "none" || $value eq " ");
 
-
-    $value = &quoteSQL($value);
-    if ($value eq "none" || $value eq " ") {
-        $value = "";
-    }
-    
-    my $playerName = &abbreviate($player->{name});
+    my $playerName = abbreviate($player->{name});
     my $playerId   = $player->{playerid};
 
-    &execNonQuery("
-        UPDATE
-            hlstats_Players
-        SET
-            $field='$value'
-        WHERE
-            playerId=$playerId
-    ");
-    
+    exec_now("UPDATE hlstats_Players SET $field= ? WHERE playerId=?", $value, $playerId );
+
     if ($g_servers{$s_addr}->{player_events} == 1) {
         my $p_userid  = $g_servers{$s_addr}->format_userid($player->{userid});
         my $p_is_bot  = $player->{is_bot};
@@ -645,80 +573,56 @@ sub updatePlayerProfile
 # If no clan exists for the tag, it will be created. Returns the clan's ID, or
 # 0 if the player is not in a clan.
 #
-
-sub getClanId
-{
+sub getClanId {
     my ($name) = @_;
-    my $clanTag  = "";
-    my $clanName = "";
-    my $clanId   = 0;
-    my $result = &doQuery("
-        SELECT
-            pattern,
-            position,
-            LENGTH(pattern) AS pattern_length
-        FROM
-            hlstats_ClanTags
-        ORDER BY
-            pattern_length DESC,
-            id
-    ");
-    
-    while ( my($pattern, $position) = $result->fetchrow_array) {
-        my $regpattern = quotemeta($pattern);
-        $regpattern =~ s/([A-Za-z0-9]+[A-Za-z0-9_-]*)/\($1\)/; # to find clan name from tag
-        $regpattern =~ s/A/./g;
-        $regpattern =~ s/X/.?/g;
-        if ((($position eq "START" || $position eq "EITHER") && $name =~ /^($regpattern).+/i) ||
-            (($position eq "END"   || $position eq "EITHER") && $name =~ /.+($regpattern)$/i)) {
-            $clanTag  = $1;
-            $clanName = $2;
+
+    my $sql_tags = q{
+        SELECT pattern, position
+        FROM hlstats_ClanTags
+        ORDER BY LENGTH(pattern) DESC, id
+    };
+    my $rows = query_now($sql_tags);
+    my ($clanTag, $clanName);
+
+    while (my ($pattern, $position) = $rows->fetchrow_array) {
+        my $rx = quotemeta($pattern);
+        $rx =~ s/A/./g;
+        $rx =~ s/X/.?/g;
+        my $re = qr/$rx/i;
+
+        if (($position eq 'START' || $position eq 'EITHER') && $name =~ /^($re)(.+)/) {
+            ($clanTag, $clanName) = ($1, $2);
+            last;
+        }
+        if (($position eq 'END' || $position eq 'EITHER') && $name =~ /(.+)($re)$/) {
+            ($clanName, $clanTag) = ($1, $2);
             last;
         }
     }
-    
-    unless ($clanTag) {
-        return 0;
-    }
 
-    my $query = "
-        SELECT
-            clanId
-        FROM
-            hlstats_Clans
-        WHERE
-            tag='" . &quoteSQL($clanTag) . "' AND
-            game='$g_servers{$s_addr}->{game}'
-        ";
-    $result = &doQuery($query);
+    return 0 unless defined $clanTag && length $clanTag;
 
-    if ($result->rows) {
-        ($clanId) = $result->fetchrow_array;
-        $result->finish;
+    my $sql_check = q{
+        SELECT clanId FROM hlstats_Clans WHERE tag=? AND game=? LIMIT 1
+    };
+    my $rows2 = query_now($sql_check, $clanTag, $g_servers{$s_addr}->{game});
+
+    if ($rows2->rows) {
+        my ($clanId) = $rows2->fetchrow_array;
+        $rows2->finish;
         return $clanId;
     } else {
-        # The clan doesn't exist yet, so we create it.
-        $query = "
-            REPLACE INTO
-                hlstats_Clans
-                (
-                    tag,
-                    name,
-                    game
-                )
-            VALUES
-            (
-                '" . &quoteSQL($clanTag)  . "',
-                '" . &quoteSQL($clanName) . "',
-                '".&quoteSQL($g_servers{$s_addr}->{game})."'
-            )
-        ";
-        &execNonQuery($query);
-        
-        $clanId = $db_conn->{'mysql_insertid'};
-
-        &printEvent("CLAN","Created clan \"$clanName\" <C:$clanId> with tag \"$clanTag\" for player \"$name\"",2);
-        return $clanId;
+        my $sql_ins = q{
+            INSERT INTO hlstats_Clans (tag, name, game)
+            VALUES (?, ?, ?)
+            ON DUPLICATE KEY UPDATE
+                name = VALUES(name),
+                clanId = LAST_INSERT_ID(clanId)
+        };
+        exec_now($sql_ins, $clanTag, $clanName, $g_servers{$s_addr}->{game});
+        my $clanid = $dbh->{'mysql_insertid'};
+        ::printEvent("CLAN", qq{Created/fetched clan "$clanName" <C:$clanid> with tag "$clanTag"}, 3);
+        return $clanid + 0;
     }
 }
 
@@ -731,59 +635,48 @@ sub getClanId
 #
 # Returns a new "Server object".
 #
-
-sub getServer
-{
+sub getServer {
     my ($address, $port) = @_;
 
-    my $query = "
+    my $sql = q{
         SELECT
             a.serverId,
             a.game,
             a.name,
             a.rcon_password,
             a.publicaddress,
-            IFNULL(b.`value`,3) AS game_engine,
-            IFNULL(c.`realgame`, 'hl2mp') AS realgame,
-            IFNULL(a.max_players, 0) AS maxplayers
-            
-        FROM
-            hlstats_Servers a LEFT JOIN hlstats_Servers_Config b on a.serverId = b.serverId AND b.`parameter` = 'GameEngine' LEFT JOIN `hlstats_Games` c ON a.game = c.code
-        WHERE
-            address=? AND
-            port=? LIMIT 1
-        ";
-    my @vals = (
-        $address,
-        $port
-    );
-    my $result = &execCached("get_server_information", $query, @vals);
+            IFNULL(b.value, 3)          AS game_engine,
+            IFNULL(c.realgame, 'hl2mp') AS realgame,
+            IFNULL(a.max_players, 0)    AS maxplayers
+        FROM hlstats_Servers a
+        LEFT JOIN hlstats_Servers_Config b
+               ON a.serverId = b.serverId AND b.parameter = 'GameEngine'
+        LEFT JOIN hlstats_Games c ON a.game = c.code
+        WHERE a.address = ? AND a.port = ?
+        LIMIT 1
+    };
 
-    if ($result->rows) {
-        my ($serverId, $game, $name, $rcon_pass, $publicaddress, $gameengine, $realgame, $maxplayers) = $result->fetchrow_array;
-        $result->finish;
-        if (!defined($g_games{$game})) {
-            $g_games{$game} = new HLstats_Game($game);
-        }
-        # l4d code should be reused for l4d2
-        # trying first using l4d as "realgame" code for l4d2 in db. if default server config settings won't work, will leave as own "realgame" code in db but uncomment line.
-        #$realgame = "l4d" if $realgame eq "l4d2";
-        
-        return new HLstats_Server($serverId, $address, $port, $name, $rcon_pass, $game, $publicaddress, $gameengine, $realgame, $maxplayers);
-    } else {
-        $result->finish;
-        return 0;
-    }
+    my $rows = query_now($sql, $address, $port);
+    return 0 unless $rows->rows;
+
+    my ($serverId, $game, $name, $rcon_pass, $publicaddress, $gameengine, $realgame, $maxplayers)
+        = $rows->fetchrow_array;;
+
+    $g_games{$game} = new HLstats_Game($game);
+
+    return HLstats_Server->new(
+        $serverId, $address, $port, $name, $rcon_pass,
+        $game, $publicaddress, $gameengine, $realgame, $maxplayers
+    );
 }
 
 #
 # 
 #
+# Query server
 #
-#
+sub queryServer {
 
-sub queryServer
-{
     my ($iaddr, $iport, @query) = @_;
     my $socket;
     $iaddr = gethostbyname($iaddr);
@@ -853,7 +746,7 @@ sub getServerMod
     my ($address, $port) = @_;
     my ($playgame);
 
-    &printEvent ("DETECT", "Querying $address".":$port for gametype",1);
+    printEvent ("GAME", "Querying $address".":$port for gametype",3);
 
     my @query = (
             'gamename',
@@ -864,7 +757,7 @@ sub getServerMod
             'mapname'
             );
 
-    my ($gamename, $gamedir, $hostname, $numplayers, $maxplayers, $mapname) = &queryServer($address, $port, @query);
+    my ($gamename, $gamedir, $hostname, $numplayers, $maxplayers, $mapname) = queryServer($address, $port, @query);
 
     if ($gamename =~ /^Counter-Strike$/i) {
         $playgame = "cstrike";
@@ -958,32 +851,38 @@ sub getServerMod
         $playgame = "dinodday";
     } else {
         # We didn't found our mod, giving up.
-        &printEvent("DETECT", "Failed to get Server Mod",1);
+        printEvent("MOD", "Failed to get Server Mod",3);
         return 0;
     }
-    &printEvent("DETECT", "Saving server " . $address . ":" . $port . " with gametype " . $playgame,1);
-    &addServerToDB($address, $port, $hostname, $playgame, $numplayers, $maxplayers, $mapname);
+    printEvent("GAME", "Saving server with gametype " . $playgame,3);
+    addServerToDB($address, $port, $hostname, $playgame, $numplayers, $maxplayers, $mapname);
     return $playgame;
 }
 
 sub addServerToDB
 {
     my ($address, $port, $name, $game, $act_players, $max_players, $act_map) = @_;
-    my $sql = "INSERT INTO hlstats_Servers (address, port, name, game, act_players, max_players, act_map) VALUES ('$address', $port, '".&quoteSQL($name)."', '".&quoteSQL($game)."', $act_players, $max_players, '".&quoteSQL($act_map)."')";
-    &execNonQuery($sql);
-   
-    my $last_id = $db_conn->{'mysql_insertid'};
-    &execNonQuery("DELETE FROM `hlstats_Servers_Config` WHERE serverId = $last_id");
-    &execNonQuery("INSERT INTO `hlstats_Servers_Config` (`serverId`, `parameter`, `value`)
-                SELECT $last_id, `parameter`, `value`
-                FROM `hlstats_Mods_Defaults` WHERE `code` = '';");
-    &execNonQuery("INSERT INTO `hlstats_Servers_Config` (`serverId`, `parameter`, `value`) VALUES
-                ($last_id, 'Mod', '');");
-    &execNonQuery("INSERT INTO `hlstats_Servers_Config` (`serverId`, `parameter`, `value`)
-                SELECT $last_id, `parameter`, `value`
-                FROM `hlstats_Games_Defaults` WHERE `code` = '".&quoteSQL($game)."'
-                ON DUPLICATE KEY UPDATE `value` = VALUES(`value`);");   
-    &readDatabaseConfig();
+
+    my $sql = q{
+        INSERT INTO hlstats_Servers (address, port, name, game, act_players, max_players, act_map)
+        VALUES (?, ?, ?, ?, ?, ?, ?)
+    };
+    my @vals = ($address, $port, $name, $game, $act_players, $max_players, $act_map);
+    exec_now($sql,@vals);
+
+    my $last_id = $dbh->{'mysql_insertid'};
+
+    exec_now("DELETE FROM `hlstats_Servers_Config` WHERE serverId = ?",$last_id);
+    exec_now("INSERT INTO `hlstats_Servers_Config` (`serverId`, `parameter`, `value`)
+                SELECT ?, `parameter`, `value`
+                FROM `hlstats_Mods_Defaults` WHERE `code` = '';",$last_id);
+    exec_now("INSERT INTO `hlstats_Servers_Config` (`serverId`, `parameter`, `value`) VALUES
+                (?, 'Mod', '');",$last_id);
+    exec_now("INSERT INTO `hlstats_Servers_Config` (`serverId`, `parameter`, `value`)
+                SELECT ?, `parameter`, `value`
+                FROM `hlstats_Games_Defaults` WHERE `code` = ?
+                ON DUPLICATE KEY UPDATE `value` = VALUES(`value`);",$game, $last_id);  
+    readDatabaseConfig();
 
     return 1;
 }
@@ -1039,7 +938,7 @@ sub getPlayerInfo
         my $slot_or_id  = $2;
         my $uniqueid    = $3;
         my $team        = $4;
-        my $role        = $5 || "";
+        my $role        = $5 // "";
         my $bot         = 0;
         my $haveplayer  = 0;
         $plainuniqueid = $uniqueid;
@@ -1056,9 +955,9 @@ sub getPlayerInfo
             foreach my $index (keys %{$g_servers{$s_addr}->{srv_players}}) {
                 my $pdata = $g_servers{$s_addr}->{srv_players}->{$index};
                 if ($pdata->{uniqueid} eq $uniqueid) {
-                    if (length $pdata->{realuserid}) {
+                    if ( $pdata->{realuserid} ) {
                         $realuserid = $pdata->{realuserid};
-                    } elsif (defined $realuserid) { # STEAM Validation
+                    } elsif (defined $realuserid && $realuserid ne $slot_or_id) { # STEAM Validation
                         $g_servers{$s_addr}->{srv_players}->{$index}->{realuserid} = $realuserid;
                     }
                     last;
@@ -1083,6 +982,7 @@ sub getPlayerInfo
         # ----------------------------------------- #
         # rewrite valid userid
         my $userid = $realuserid // $slot_or_id;
+
         if (($uniqueid eq "Console") && ($team eq "Console")) {
           return 0;
         }
@@ -1121,7 +1021,7 @@ sub getPlayerInfo
                     } elsif ($name eq "Bill") {
                         $userid = -3;
                     } else {
-                        &printEvent("ERROR", "No survivor match for $name",2);
+                        printEvent("ERROR", "No survivor match for $name",3);
                         $userid = -4;
                     }
                 } else {
@@ -1140,7 +1040,7 @@ sub getPlayerInfo
                     } elsif ($name eq "Tank") {
                         $userid = -8;
                     } else {
-                        &printEvent("DEBUG", "No infected match for $name",2);
+                        printEvent("GAME", "No infected match for $name",3);
                         $userid = -8;
                     }
                 }
@@ -1149,7 +1049,7 @@ sub getPlayerInfo
             }
         }
     
-        $ipAddr = undef if ($ipAddr eq "none");
+        $ipAddr = undef if (!defined $ipAddr || $ipAddr eq "none");
         $bot = botidcheck($uniqueid);
 
         if ($g_mode eq "NameTrack") {
@@ -1224,7 +1124,7 @@ sub getPlayerInfo
                     $haveplayer = 1;
                     # Catch players reconnecting without first disconnecting
                     if ($player->{userid} != $userid) {
-                        &doEvent_Disconnect(
+                        doEvent_Disconnect(
                             $player->{"userid"},
                             $uniqueid,
                             ""
@@ -1242,14 +1142,14 @@ sub getPlayerInfo
                 #  (which is already handled in the ChangeMap handler)
                 #  So ignore when team is blank (<>) from lazy log lines
                 if ($team ne "" && $player->{team} ne $team) {
-                    &doEvent_TeamSelection(
+                    doEvent_TeamSelection(
                         $userid,
                         $uniqueid,
                         $team
                     );
                 }
                 if ($role ne "" && $role ne $player->{role}) {
-                    &doEvent_RoleSelection(
+                    doEvent_RoleSelection(
                         $player->{"userid"},
                         $player->{"uniqueid"},
                         $role
@@ -1269,7 +1169,7 @@ sub getPlayerInfo
                         $preIpAddr = $g_preconnect->{"$s_addr/$userid/$name"}->{"ipaddress"};
                     }
                     # Add the player to our hash of player objects
-                    $g_servers{$s_addr}->{"srv_players"}->{"$userid/$uniqueid"} = new HLstats_Player(
+                    $g_servers{$s_addr}->{"srv_players"}->{"$userid/$uniqueid"} = HLstats_Player->new(
                         server => $s_addr,
                         server_id => $g_servers{$s_addr}->{id},
                         userid => $userid,
@@ -1284,8 +1184,8 @@ sub getPlayerInfo
                         address => (($preIpAddr ne "") ? $preIpAddr : $ipAddr // '')
                     );
                     if ($preIpAddr ne "") {
-                        &printEvent("SERVER", "LATE CONNECT [$name/$userid] - steam userid validated",2);
-                        &doEvent_Connect($userid, $uniqueid, $preIpAddr);
+                        printEvent("SERVER", "LATE CONNECT [$name/$userid] - steam userid validated",3);
+                        doEvent_Connect($userid, $uniqueid, $preIpAddr);
                         delete($g_preconnect->{"$s_addr/$userid/$name"});
                     }
                     # Increment number of players on server
@@ -1311,7 +1211,7 @@ sub getPlayerInfo
                     $g_servers{$s_addr}->updatePlayerCount();
                 } 
             } else {
-                &printEvent("PLAYER","No player object available for player \"$name\" <U:$userid>",2);
+                printEvent("PLAYER", "No player object available for player \"$name\" <U:$userid>",3);
             }
         }
 
@@ -1327,7 +1227,7 @@ sub getPlayerInfo
         my $uniqueid = $2;
         my $bot      = 0;
         
-        if (&botidcheck($uniqueid)) {
+        if (botidcheck($uniqueid)) {
             $md5 = Digest::MD5->new;
             $md5->add($ev_daemontime);
             $md5->add($s_addr);
@@ -1342,7 +1242,7 @@ sub getPlayerInfo
     } elsif ($player =~ /^<><([^<>]+)><>$/) {
         my $uniqueid = $1;
         my $bot      = 0;
-        if (&botidcheck($uniqueid)) {
+        if (botidcheck($uniqueid)) {
             $md5 = Digest::MD5->new;
             $md5->add($ev_daemontime);
             $md5->add($s_addr);
@@ -1442,8 +1342,8 @@ sub isTrackableTeam
 
 sub reloadConfiguration
 {
-    &flushAll;
-    &readDatabaseConfig;
+    flushAll();
+    readDatabaseConfig();
 }
 
 
@@ -1474,145 +1374,98 @@ sub flushAll
 
 sub readDatabaseConfig()
 {
-    &printEvent("CONFIG", "Reading database config...", 1);
-    &execNonQuery("UPDATE hlstats_Options
-                  SET value='$g_version'
-                  WHERE keyname='version';");
+    printEvent("CONFIG", "Reading database config...", 1);
+    exec_now("UPDATE hlstats_Options
+                  SET value=?
+                  WHERE keyname='version';",$g_version);
     %g_config_servers = ();
     %g_servers = ();
     %g_games = ();
 
     # elstatsneo: read the servers portion from the mysql database
-    my $srv_id = &doQuery("SELECT serverId,CONCAT(address,':',port) AS addr FROM hlstats_Servers");
+    my $srv_id = query_now("SELECT serverId,CONCAT(address,':',port) AS addr FROM hlstats_Servers");
     while ( my($serverId,$addr) = $srv_id->fetchrow_array) {
         $g_config_servers{$addr} = ();
-        my $serverConfig = &doQuery("SELECT parameter,value FROM hlstats_Servers_Config WHERE serverId=$serverId");
+        my $serverConfig = query_now("SELECT parameter,value FROM hlstats_Servers_Config WHERE serverId=?",$serverId);
         while ( my($p,$v) = $serverConfig->fetchrow_array) {
             $g_config_servers{$addr}{$p} = $v;
         }
     }
     $srv_id->finish;
     # hlxce: read the global settings from the database!
-    my $gsettings = &doQuery("SELECT keyname,value FROM hlstats_Options WHERE opttype <= 1");
+    my $gsettings = query_now("SELECT keyname,value FROM hlstats_Options WHERE opttype <= 1");
     while ( my($p,$v) = $gsettings->fetchrow_array) {
         $tmp = "\$".$directives_mysql{$p}." = '$v'";
         eval $tmp;
     }
     $gsettings->finish;
-    # setting defaults
 
-    &printEvent("DAEMON", "Proxy_Key DISABLED", 1) if ($proxy_key eq "");
-    while (my($addr, $server) = each(%g_config_servers)) {
-        
-        if (!defined($g_config_servers{$addr}{"MinPlayers"})) {
-            $g_config_servers{$addr}{"MinPlayers"}                        = 6;
-        }  
-        if (!defined($g_config_servers{$addr}{"DisplayResultsInBrowser"})) {
-            $g_config_servers{$addr}{"DisplayResultsInBrowser"}            = 0;
-        }  
-        if (!defined($g_config_servers{$addr}{"BroadCastEvents"})) {
-            $g_config_servers{$addr}{"BroadCastEvents"}                    = 0;
-        }
-        if (!defined($g_config_servers{$addr}{"BroadCastPlayerActions"})) {
-            $g_config_servers{$addr}{"BroadCastPlayerActions"}            = 0;
-        }
-        if (!defined($g_config_servers{$addr}{"BroadCastEventsCommand"})) {
-            $g_config_servers{$addr}{"BroadCastEventsCommand"}            = "say";
-        }
-        if (!defined($g_config_servers{$addr}{"BroadCastEventsCommandAnnounce"})) {
-            $g_config_servers{$addr}{"BroadCastEventsCommandAnnounce"}    = "say";
-        }
-        if (!defined($g_config_servers{$addr}{"PlayerEvents"})) {
-            $g_config_servers{$addr}{"PlayerEvents"}                    = 1;
-        }
-        if (!defined($g_config_servers{$addr}{"PlayerEventsCommand"})) {
-            $g_config_servers{$addr}{"PlayerEventsCommand"}                = "say";
-        }
-        if (!defined($g_config_servers{$addr}{"PlayerEventsCommandOSD"})) {
-            $g_config_servers{$addr}{"PlayerEventsCommandOSD"}            = "";
-        }
-        if (!defined($g_config_servers{$addr}{"PlayerEventsCommandHint"})) {
-            $g_config_servers{$addr}{"PlayerEventsCommandHint"}            = "";
-        }
-        if (!defined($g_config_servers{$addr}{"PlayerEventsAdminCommand"})) {
-            $g_config_servers{$addr}{"PlayerEventsAdminCommand"}        = "";
-        }
-        if (!defined($g_config_servers{$addr}{"ShowStats"})) {
-            $g_config_servers{$addr}{"ShowStats"}                        = 1;
-        }
-        if (!defined($g_config_servers{$addr}{"AutoTeamBalance"})) {
-            $g_config_servers{$addr}{"AutoTeamBalance"}                    = 0;
-        }
-        if (!defined($g_config_servers{$addr}{"AutoBanRetry"})) {
-            $g_config_servers{$addr}{"AutoBanRetry"}                    = 0;
-        }
-        if (!defined($g_config_servers{$addr}{"TrackServerLoad"})) {
-            $g_config_servers{$addr}{"TrackServerLoad"}                    = 0;
-        }
-        if (!defined($g_config_servers{$addr}{"MinimumPlayersRank"})) {
-            $g_config_servers{$addr}{"MinimumPlayersRank"}                = 0;
-        }
-        if (!defined($g_config_servers{$addr}{"Admins"})) {
-            $g_config_servers{$addr}{"Admins"}                            = "";
-        }
-        if (!defined($g_config_servers{$addr}{"SwitchAdmins"})) {
-            $g_config_servers{$addr}{"SwitchAdmins"}                    = 0;
-        }
-        if (!defined($g_config_servers{$addr}{"IgnoreBots"})) {
-            $g_config_servers{$addr}{"IgnoreBots"}                        = 1;
-        }
-        if (!defined($g_config_servers{$addr}{"SkillMode"})) {
-            $g_config_servers{$addr}{"SkillMode"}                        = 0;
-        }
-        if (!defined($g_config_servers{$addr}{"GameType"})) {
-            $g_config_servers{$addr}{"GameType"}                        = 0;
-        }
-        if (!defined($g_config_servers{$addr}{"BonusRoundTime"})) {
-            $g_config_servers{$addr}{"BonusRoundTime"}                    = 0;
-        }
-        if (!defined($g_config_servers{$addr}{"BonusRoundIgnore"})) {
-            $g_config_servers{$addr}{"BonusRoundIgnore"}                = 0;
-        }
-        if (!defined($g_config_servers{$addr}{"Mod"})) {
-            $g_config_servers{$addr}{"Mod"}                                = "";
-        }
-        if (!defined($g_config_servers{$addr}{"EnablePublicCommands"})) {
-            $g_config_servers{$addr}{"EnablePublicCommands"}            = 1;
-        }
-        if (!defined($g_config_servers{$addr}{"ConnectAnnounce"})) {
-            $g_config_servers{$addr}{"ConnectAnnounce"}                    = 1;
-        }
-        if (!defined($g_config_servers{$addr}{"UpdateHostname"})) {
-            $g_config_servers{$addr}{"UpdateHostname"}                    = 0;
-        }
-        if (!defined($g_config_servers{$addr}{"DefaultDisplayEvents"})) {
-            $g_config_servers{$addr}{"DefaultDisplayEvents"}            = 1;
+    # Apply defaults
+
+    # Apply defaults
+    my %defaults = (
+        MinPlayers                     => 2,
+        DisplayResultsInBrowser        => 0,
+        BroadCastEvents                => 0,
+        BroadCastPlayerActions         => 0,
+        BroadCastEventsCommand         => "say",
+        BroadCastEventsCommandAnnounce => "say",
+        PlayerEvents                   => 1,
+        PlayerEventsCommand            => "say",
+        PlayerEventsCommandOSD         => "",
+        PlayerEventsCommandHint        => "",
+        PlayerEventsAdminCommand       => "",
+        ShowStats                      => 1,
+        AutoTeamBalance                => 0,
+        AutoBanRetry                   => 0,
+        TrackServerLoad                => 0,
+        MinimumPlayersRank             => 0,
+        Admins                         => "",
+        SwitchAdmins                   => 0,
+        IgnoreBots                     => 1,
+        SkillMode                      => 0,
+        GameType                       => 0,
+        BonusRoundTime                 => 0,
+        BonusRoundIgnore               => 0,
+        Mod                            => "",
+        EnablePublicCommands           => 1,
+        ConnectAnnounce                => 1,
+        UpdateHostname                 => 0,
+        DefaultDisplayEvents           => 1,
+    );
+
+    while (my ($addr,$server) = each %g_config_servers) {
+        for my $k (keys %defaults) {
+            $server->{$k} //= $defaults{$k};
         }
     }
 
-    &printEvent("CONFIG", "I have found the following server configs in database:", 1);
-    while (my($addr, $server) = each(%g_config_servers)) {
-        &printEvent("S_CONFIG", $addr, 1);
+    printEvent("DAEMON", "Proxy_Key DISABLED", 1) if ($proxy_key eq "");
+    printEvent("CONFIG", "I have found the following server configs in database:", 1);
+    while (my ($addr, $server) = each %g_config_servers) {
+        printEvent("S_CONFIG", $addr, 1);
     }
-    
-    if ($g_geoip_binary > 0 && !defined($g_gi)) {
+
+    #  GeoIP setup
+    if ($g_geoip_binary > 0 && !defined $g_gi) {
         my $geoipfile = "$opt_libdir/GeoLiteCity/GeoLite2-City.mmdb";
         if (-r $geoipfile) {
-            eval "use GeoIP2::Database::Reader"; my $hasGeoIP = $@ ? 0 : 1;
+            eval "use GeoIP2::Database::Reader";
+            my $hasGeoIP = $@ ? 0 : 1;
             if ($hasGeoIP) {
                 $g_gi = GeoIP2::Database::Reader->new(
-                        file    => $geoipfile,
-                        locales => [ 'en' ]
+                    file    => $geoipfile,
+                    locales => ['en']
                 );
             } else {
-                &printEvent("ERROR", "GeoIP method set to binary file lookup but GeoIP2::Database::Reader module NOT FOUND", 1);
+                printEvent("ERROR", "GeoIP binary lookup but module not found", 1);
                 $g_gi = undef;
             }
         } else {
-            &printEvent("ERROR", "GeoIP method set to binary file lookup but $geoipfile NOT FOUND", 1);
+            printEvent("ERROR", "GeoIP file $geoipfile not found", 1);
             $g_gi = undef;
         }
-    } elsif ($g_geoip_binary == 0 && defined($g_gi)) {
+    } elsif ($g_geoip_binary == 0 && defined $g_gi) {
         $g_gi->close();
         $g_gi = undef;
     }
@@ -1623,51 +1476,46 @@ sub getLine
     return <STDIN>;
 }
 
+$print_addr = "";
 sub handleIncoming
 {
     my ($source, $s_output) = @_;
-
     return unless defined $s_output;
     $s_output =~ s/^\s+//;
     $s_output =~ s/\s+$//;
     return unless length $s_output;
-    print "[$source] $s_output\n" if $g_debug == 3;
-
+    $print_addr = $s_addr;
+    my($s_peerhost, $s_peerport) = split(/:/, $s_addr);
+    print "[$source] $s_output\n" if $g_debug == 3 || $g_debug == 9;
     # Proxy filter
     if (($s_output =~ /^.*PROXY Key=(.+) (.*)PROXY.+/) && $proxy_key ne "") {
         $rproxy_key = $1;
         $s_addr = $2;
 
-    if ($s_addr ne "") {
-        ($s_peerhost, $s_peerport) = split(/:/, $s_addr);
-    }
+        if ($s_addr) {
+            ($s_peerhost, $s_peerport) = split(/:/, $s_addr);
+        }
 
-    $proxy_s_peerhost = $s_peerhost;
-    $proxy_s_peerport  = $s_peerport;
-    &printEvent("PROXY", "Detected proxy call from $proxy_s_peerhost:$proxy_s_peerport",1);
+        $proxy_s_peerhost = $s_peerhost;
+        $proxy_s_peerport  = $s_peerport;
+        printEvent("PROXY", "Detected proxy call from $proxy_s_peerhost:$proxy_s_peerport",1);
 
         if ($proxy_key eq $rproxy_key) {
             $s_output =~ s/PROXY.*PROXY //;
             if ($s_output =~ /^C;HEARTBEAT;/) {
-                &printEvent("PROXY, Heartbeat request from $proxy_s_peerhost:$proxy_s_peerport",1);
+                printEvent("PROXY", "Heartbeat request from $proxy_s_peerhost:$proxy_s_peerport",1);
             } elsif ($s_output =~ /^C;RELOAD;/) {
-                &printEvent("PROXY, Reload request from $proxy_s_peerhost:$proxy_s_peerport",1);
+                printEvent("PROXY", "Reload request from $proxy_s_peerhost:$proxy_s_peerport",1);
             } elsif ($s_output =~ /^C;KILL;/) {
-                &printEvent("PROXY, Kill request from $proxy_s_peerhost:$proxy_s_peerport",1);
+                printEvent("PROXY", "Kill request from $proxy_s_peerhost:$proxy_s_peerport",1);
             } else {
-                &printEvent("PROXY", $s_output,1);
+                printEvent("PROXY", $s_output,1);
             }
         } else {
-            &printEvent("PROXY", "proxy_key mismatch, dropping package: $s_output",1);
+            printEvent("PROXY", "proxy_key mismatch, dropping package: $s_output",1);
             $s_output = "";
             return;
         }
-    } else {
-        # Reset the proxy stuff and use it as "normal"
-        $rproxy_key = "";
-        $proxy_s_peerhost = "";
-        $proxy_s_peerport = "";
-        $s_addr = "$s_peerhost:$s_peerport";
     }
 
     # Inject into HLstatsZ
@@ -1676,7 +1524,7 @@ sub handleIncoming
     $cmd = $data[0];
 
     if ($cmd eq "C" && ($s_peerhost eq "127.0.0.1" || (($proxy_key eq $rproxy_key) && $proxy_key ne ""))) {
-        &printEvent("CONTROL", "Command received: ".$data[1], 1);
+        printEvent("CONTROL", "Command received: ".$data[1], 1);
         if ($proxy_s_peerhost ne "" && $proxy_s_peerport ne "") {
             $address = $proxy_s_peerhost;
             $port = $proxy_s_peerport;
@@ -1690,18 +1538,18 @@ sub handleIncoming
         my $dest = sockaddr_in($port, inet_aton($address));
 
         if ($data[1] eq "RELOAD") {
-            &printEvent("CONTROL", "Re-Reading Configuration by request from Frontend...", 1);
-            &reloadConfiguration;
+            printEvent("CONTROL", "Re-Reading Configuration by request from Frontend...", 1);
+            reloadConfiguration();
             my $dest = sockaddr_in($port, inet_aton($address));
             $msg="Re-Reading Configuration by request from Frontend...OK";
             send($::udp_socket, $msg, 0, $dest); #reply to front end          
         } 
 
         if ($data[1] eq "KILL") {
-            &printEvent("CONTROL", "SHUTTING DOWN SCRIPT", 1);
-            &flushAll;
+            printEvent("CONTROL", "SHUTTING DOWN SCRIPT", 1);
+            flushAll();
             my $dest = sockaddr_in($port, inet_aton($address));
-            $msg="Shutting down HLstatsX Daemon...Goodbye...";
+            $msg="Shutting down HLstatsZ Daemon...Goodbye...";
             send($::udp_socket, $msg, 0, $dest); #reply to front end       
             exit(0);
         }
@@ -1715,11 +1563,10 @@ sub handleIncoming
     $s_output =~ s/\[OLD.C-D\]//g; # remove [OLD C-D] tag
     $s_output =~ s/\[NOCL\]//g;    # remove [NOCL] tag
 
-    # Get the server info, if we know the server, otherwise ignore the data
+    # default config for unknown servers
     if (!defined($g_servers{$s_addr})) {
         if (($g_onlyconfig_servers == 1) && (!defined($g_config_servers{$s_addr}))) {
-            # HELLRAISER disabled this for testing
-            &printEvent(997, "NOT ALLOWED SERVER: " . $s_output,1);
+            printEvent("ERROR", "NOT ALLOWED SERVER: " . $s_output,1);
             return;
         } elsif (!defined($g_config_servers{$s_addr})) { # create std cfg.
             my %std_cfg;
@@ -1753,184 +1600,196 @@ sub handleIncoming
             $std_cfg{"BonusRoundTime"}                    = 20;
             $std_cfg{"UpdateHostname"}                    = 0;
             $std_cfg{"ConnectAnnounce"}                    = 1;
-            $std_cfg{"DefaultDisplayEvents"}            = 1;
+            $std_cfg{"DefaultDisplayEvents"}            = 1; 
+            # Create default config if none
             %{$g_config_servers{$s_addr}}                = %std_cfg;
-            &printEvent("CFG", "Created default config for unknown server [$s_addr]",1);
-            &printEvent("DETECT", "New server with game: " . &getServerMod($s_peerhost, $s_peerport),1);
+            printEvent("CFG", "Created default config for unknown server",1);
+            printEvent("DETECT", "New server with game: " . getServerMod($s_peerhost, $s_peerport),1);
         }
-
+    
         if ($g_config_servers{$s_addr}) {
-            my $tempsrv = &getServer($s_peerhost, $s_peerport);
+            my $tempsrv = getServer($s_peerhost, $s_peerport);
             return if ($tempsrv == 0);
+    
             $g_servers{$s_addr} = $tempsrv;
             my %s_cfg = %{$g_config_servers{$s_addr}};
+    
+            # Basic fields
             $g_servers{$s_addr}->set("minplayers", $s_cfg{"MinPlayers"});
             $g_servers{$s_addr}->set("hlstats_url", $s_cfg{"HLStatsURL"});
+    
+            # Toggles with messages
             if (length $s_cfg{"DisplayResultsInBrowser"} && $s_cfg{"DisplayResultsInBrowser"} > 0) {
                 $g_servers{$s_addr}->set("use_browser",  1);
-                &printEvent("SERVER", "Query results will displayed in valve browser", 1); 
+                printEvent("SERVER", "Query results will displayed in valve browser", 1); 
             } else { 
                 $g_servers{$s_addr}->set("use_browser",  0);
-                &printEvent("SERVER", "Query results will not displayed in valve browser", 1); 
+                printEvent("SERVER", "Query results will not displayed in valve browser", 1); 
             }
             if ($s_cfg{"ShowStats"} == 1) {
                 $g_servers{$s_addr}->set("show_stats",  1);
-                &printEvent("SERVER", "Showing stats is enabled", 1); 
+                printEvent("SERVER", "Showing stats is enabled", 1); 
             } else {
                 $g_servers{$s_addr}->set("show_stats",  0);
-                &printEvent("SERVER", "Showing stats is disabled", 1); 
+                printEvent("SERVER", "Showing stats is disabled", 1); 
             }
+            # Broadcasting group
             if ($s_cfg{"BroadCastEvents"} == 1) {
                 $g_servers{$s_addr}->set("broadcasting_events",  1);
                 $g_servers{$s_addr}->set("broadcasting_player_actions",  $s_cfg{"BroadCastPlayerActions"});
                 $g_servers{$s_addr}->set("broadcasting_command", $s_cfg{"BroadCastEventsCommand"});
+    
                 if ($s_cfg{"BroadCastEventsCommandAnnounce"} eq "ma_hlx_csay") {
                     $s_cfg{"BroadCastEventsCommandAnnounce"} = $s_cfg{"BroadCastEventsCommandAnnounce"}." #all";
                 }
                 $g_servers{$s_addr}->set("broadcasting_command_announce", $s_cfg{"BroadCastEventsCommandAnnounce"});
-
-                &printEvent("SERVER", "Broadcasting Live-Events with \"".$s_cfg{"BroadCastEventsCommand"}."\" is enabled", 1); 
+    
+                printEvent("SERVER", "Broadcasting Live-Events with \"".$s_cfg{"BroadCastEventsCommand"}."\" is enabled", 1); 
                 if ($s_cfg{"BroadCastEventsCommandAnnounce"} ne "") {
-                    &printEvent("SERVER", "Broadcasting Announcements with \"".$s_cfg{"BroadCastEventsCommandAnnounce"}."\" is enabled", 1); 
+                    printEvent("SERVER", "Broadcasting Announcements with \"".$s_cfg{"BroadCastEventsCommandAnnounce"}."\" is enabled", 1); 
                 }
             } else {
                 $g_servers{$s_addr}->set("broadcasting_events",               0);
-                &printEvent("SERVER", "Broadcasting Live-Events is disabled", 1); 
+                printEvent("SERVER", "Broadcasting Live-Events is disabled", 1); 
             }
+    
+            # Player events group
             if ($s_cfg{"PlayerEvents"} == 1) {
                 $g_servers{$s_addr}->set("player_events",  1);
                 $g_servers{$s_addr}->set("player_command", $s_cfg{"PlayerEventsCommand"});
                 $g_servers{$s_addr}->set("player_command_osd", $s_cfg{"PlayerEventsCommandOSD"});
                 $g_servers{$s_addr}->set("player_command_hint", $s_cfg{"PlayerEventsCommandHint"});
                 $g_servers{$s_addr}->set("player_admin_command", $s_cfg{"PlayerEventsAdminCommand"});
-                &printEvent("SERVER", "Player Event-Handler with \"".$s_cfg{"PlayerEventsCommand"}."\" is enabled", 1); 
+                printEvent("SERVER", "Player Event-Handler with \"".$s_cfg{"PlayerEventsCommand"}."\" is enabled", 1); 
                 if ($s_cfg{"PlayerEventsCommandOSD"} ne "") {
-                    &printEvent("SERVER", "Displaying amx style menu with \"".$s_cfg{"PlayerEventsCommandOSD"}."\" is enabled", 1); 
+                    printEvent("SERVER", "Displaying amx style menu with \"".$s_cfg{"PlayerEventsCommandOSD"}."\" is enabled", 1); 
                 }
             } else {
                 $g_servers{$s_addr}->set("player_events", 0);
-                &printEvent("SERVER", "Player Event-Handler is disabled", 1); 
+                printEvent("SERVER", "Player Event-Handler is disabled", 1); 
             }
             if ($s_cfg{"DefaultDisplayEvents"} > 0) {
+            # More toggles
                 $g_servers{$s_addr}->set("default_display_events", "1");
-                &printEvent("SERVER", "New Players defaulting to show event messages", 1);
+                printEvent("SERVER", "New Players defaulting to show event messages", 1);
             } else {
                 $g_servers{$s_addr}->set("default_display_events", "0");
-                &printEvent("SERVER", "New Players defaulting to NOT show event messages", 1);
+                printEvent("SERVER", "New Players defaulting to NOT show event messages", 1);
             }
             if ($s_cfg{"TrackServerLoad"} > 0) {
                 $g_servers{$s_addr}->set("track_server_load", "1");
-                &printEvent("SERVER", "Tracking server load is enabled", 1);
+                printEvent("SERVER", "Tracking server load is enabled", 1);
             } else {
                 $g_servers{$s_addr}->set("track_server_load", "0");
-                &printEvent("SERVER", "Tracking server load is disabled", 1);
+                printEvent("SERVER", "Tracking server load is disabled", 1);
             }
-
+    
             if (length $s_cfg{"TKPenalty"} && $s_cfg{"TKPenalty"} > 0) {
                 $g_servers{$s_addr}->set("tk_penalty", $s_cfg{"TKPenalty"});
-                &printEvent("SERVER", "Penalty team kills with ".$s_cfg{"TKPenalty"}." points", 1);
+                printEvent("SERVER", "Penalty team kills with ".$s_cfg{"TKPenalty"}." points", 1);
             }
             if (length $s_cfg{"SuicidePenalty"} && $s_cfg{"SuicidePenalty"} > 0) {
                 $g_servers{$s_addr}->set("suicide_penalty", $s_cfg{"SuicidePenalty"});
-                &printEvent("SERVER", "Penalty suicides with ".$s_cfg{"SuicidePenalty"}." points", 1);
+                printEvent("SERVER", "Penalty suicides with ".$s_cfg{"SuicidePenalty"}." points", 1);
             }
             if (length $s_cfg{"BonusRoundTime"} && $s_cfg{"BonusRoundTime"} > 0) {
                 $g_servers{$s_addr}->set("bonusroundtime", $s_cfg{"BonusRoundTime"});
-                &printEvent("SERVER", "Bonus Round time set to: ".$s_cfg{"BonusRoundTime"}, 1);
+                printEvent("SERVER", "Bonus Round time set to: ".$s_cfg{"BonusRoundTime"}, 1);
             }
             if (length $s_cfg{"BonusRoundIgnore"} && $s_cfg{"BonusRoundIgnore"} > 0) {
                 $g_servers{$s_addr}->set("bonusroundignore", $s_cfg{"BonusRoundIgnore"});
-                &printEvent("SERVER", "Bonus Round is being ignored. Length: (".$s_cfg{"BonusRoundTime"}.")", 1);
+                printEvent("SERVER", "Bonus Round is being ignored. Length: (".$s_cfg{"BonusRoundTime"}.")", 1);
             }
+    
             if (length $s_cfg{"AutoTeamBalance"} && $s_cfg{"AutoTeamBalance"} > 0) {
                 $g_servers{$s_addr}->set("ba_enabled", "1");
-                &printEvent("TEAMS", "Auto-Team-Balancing is enabled", 1);
+                printEvent("TEAMS", "Auto-Team-Balancing is enabled", 1);
             } else {
                 $g_servers{$s_addr}->set("ba_enabled", "0");
-                &printEvent("TEAMS", "Auto-Team-Balancing is disabled", 1);
+                printEvent("TEAMS", "Auto-Team-Balancing is disabled", 1);
             }
             if (length $s_cfg{"AutoBanRetry"} && $s_cfg{"AutoBanRetry"} > 0) {
                 $g_servers{$s_addr}->set("auto_ban", "1");
-                &printEvent("TEAMS", "Auto-Retry-Banning is enabled", 1);
+                printEvent("TEAMS", "Auto-Retry-Banning is enabled", 1);
             } else {
                 $g_servers{$s_addr}->set("auto_ban", "0");
-                &printEvent("TEAMS", "Auto-Retry-Banning is disabled", 1);
+                printEvent("TEAMS", "Auto-Retry-Banning is disabled", 1);
             }
-
+    
             if (length $s_cfg{"MinimumPlayersRank"} && $s_cfg{"MinimumPlayersRank"} > 0) {
                 $g_servers{$s_addr}->set("min_players_rank", $s_cfg{"MinimumPlayersRank"});
-                &printEvent("SERVER", "Requires minimum players rank is enabled [MinPos:".$s_cfg{"MinimumPlayersRank"}."]", 1);
+                printEvent("SERVER", "Requires minimum players rank is enabled [MinPos:".$s_cfg{"MinimumPlayersRank"}."]", 1);
             } else {
                 $g_servers{$s_addr}->set("min_players_rank", "0");
-                &printEvent("SERVER", "Requires minimum players rank is disabled", 1);
+                printEvent("SERVER", "Requires minimum players rank is disabled", 1);
             }
-
+    
             if (length $s_cfg{"EnablePublicCommands"} && $s_cfg{"EnablePublicCommands"} > 0) {
                 $g_servers{$s_addr}->set("public_commands", $s_cfg{"EnablePublicCommands"});
-                &printEvent("SERVER", "Public chat commands are enabled", 1);
+                printEvent("SERVER", "Public chat commands are enabled", 1);
             } else {
                 $g_servers{$s_addr}->set("public_commands", "0");
-                &printEvent("SERVER", "Public chat commands are disabled", 1);
+                printEvent("SERVER", "Public chat commands are disabled", 1);
             }
-
+    
+            # Admins
             if ($s_cfg{"Admins"} ne "") {
                 @{$g_servers{$s_addr}->{admins}} = split(/,/, $s_cfg{"Admins"});
                 foreach(@{$g_servers{$s_addr}->{admins}})
                 {
                     $_ =~ s/^STEAM_[0-9]+?\://i;
                 }
-                &printEvent("SERVER", "Admins: ".$s_cfg{"Admins"}, 1);
+                printEvent("SERVER", "Admins: ".$s_cfg{"Admins"}, 1);
             }
-
+    
             if (length $s_cfg{"SwitchAdmins"} && $s_cfg{"SwitchAdmins"} > 0) {
                 $g_servers{$s_addr}->set("switch_admins", "1");
-                &printEvent("TEAMS", "Switching Admins on Auto-Team-Balance is enabled", 1);
+                printEvent("TEAMS", "Switching Admins on Auto-Team-Balance is enabled", 1);
             } else {
                 $g_servers{$s_addr}->set("switch_admins", "0");
-                &printEvent("TEAMS", "Switching Admins on Auto-Team-Balance is disabled", 1);
+                printEvent("TEAMS", "Switching Admins on Auto-Team-Balance is disabled", 1);
             }
-
+    
             if (length $s_cfg{"IgnoreBots"} && $s_cfg{"IgnoreBots"} > 0) {
                 $g_servers{$s_addr}->set("ignore_bots", "1");
-                &printEvent("SERVER", "Ignoring bots is enabled", 1);
+                printEvent("SERVER", "Ignoring bots is enabled", 1);
             } else {
                 $g_servers{$s_addr}->set("ignore_bots", "0");
-                &printEvent("SERVER", "Ignoring bots is disabled", 1);
+                printEvent("SERVER", "Ignoring bots is disabled", 1);
             }
+            # Skill / Game Type / Mod
             $g_servers{$s_addr}->set("skill_mode", $s_cfg{"SkillMode"});
-            &printEvent("SERVER", "Using skill mode ".$s_cfg{"SkillMode"}, 1);
-
+            printEvent("SERVER", "Using skill mode ".$s_cfg{"SkillMode"}, 1);
+    
             if (length $s_cfg{"GameType"} && $s_cfg{"GameType"} == 1) {
                 $g_servers{$s_addr}->set("game_type", $s_cfg{"GameType"});
-                &printEvent("SERVER", "Game type: Counter-Strike: Source - Deathmatch", 1);
+                printEvent("SERVER", "Game type: Counter-Strike: Source - Deathmatch", 1);
             } else {
                 $g_servers{$s_addr}->set("game_type", "0");
-                &printEvent("SERVER", "Game type: Normal", 1);
+                printEvent("SERVER", "Game type: Normal", 1);
             }
-
+    
             $g_servers{$s_addr}->set("mod", $s_cfg{"Mod"});
-
             if ($s_cfg{"Mod"} ne "") {
-                &printEvent("SERVER", "Using plugin ".$s_cfg{"Mod"}." for internal functions!", 1);
+                printEvent("SERVER", "Using plugin ".$s_cfg{"Mod"}." for internal functions!", 1);
             }
             if (length $s_cfg{"ConnectAnnounce"} && $s_cfg{"ConnectAnnounce"} == 1) {
                 $g_servers{$s_addr}->set("connect_announce", $s_cfg{"ConnectAnnounce"});
                 &printEvent("SERVER", "Connect Announce is enabled", 1);
             } else {
                 $g_servers{$s_addr}->set("connect_announce", "0");
-                &printEvent("SERVER", "Connect Announce is disabled", 1);
+                printEvent("SERVER", "Connect Announce is disabled", 1);
             }
             if (length $s_cfg{"UpdateHostname"} && $s_cfg{"UpdateHostname"} == 1) {
                 $g_servers{$s_addr}->set("update_hostname", $s_cfg{"UpdateHostname"});
-                &printEvent("SERVER", "Auto-updating hostname is enabled", 1);
+                printEvent("SERVER", "Auto-updating hostname is enabled", 1);
             } else {
                 $g_servers{$s_addr}->set("update_hostname", "0");
-                &printEvent("SERVER", "Auto-updating hostname is disabled", 1);
+                printEvent("SERVER", "Auto-updating hostname is disabled", 1);
             }
             $g_servers{$s_addr}->get_game_mod_opts();
-            #$g_servers{$s_addr}->getSlots() if ($g_servers{$s_addr}->{play_game} == CS2());
+            # $srv->getSlots() if ($srv->{play_game} == CS2());
         }
-
     }
 
     # EXPLOIT FIX
@@ -1955,7 +1814,7 @@ sub handleIncoming
             }
         }
     } else {
-        &printEvent(998, "MALFORMED DATA: " . $s_output,4);
+        printEvent("ERROR", "MALFORMED DATA: " . $s_output,9);
         return;
     }
 
@@ -1992,15 +1851,15 @@ sub handleIncoming
         $ev_obj_b  = $2; # victim
         $ev_obj_c  = $3; # weapon
         $ev_properties = $4;
-        %ev_properties_hash = &getProperties($ev_properties);
+        %ev_properties_hash = getProperties($ev_properties);
 
-        my $playerinfo = &getPlayerInfo($ev_player, 1);
-        my $victiminfo = &getPlayerInfo($ev_obj_b, 1);
+        my $playerinfo = getPlayerInfo($ev_player, 1);
+        my $victiminfo = getPlayerInfo($ev_obj_b, 1);
         $ev_type = 10;
 
         if ($playerinfo) {
             if ($victiminfo) {
-                $ev_status = &doEvent_PlayerPlayerAction(
+                $ev_status = doEvent_PlayerPlayerAction(
                     $playerinfo->{"userid"},
                     $playerinfo->{"uniqueid"},
                     $victiminfo->{"userid"},
@@ -2012,20 +1871,20 @@ sub handleIncoming
                     undef,
                     undef,
                     undef,
-                    &getProperties($ev_properties)
+                    getProperties($ev_properties)
                 );
             }
 
             $ev_type = 11;
             
-            $ev_status = &doEvent_PlayerAction(
+            $ev_status = doEvent_PlayerAction(
                 $playerinfo->{"userid"},
                 $playerinfo->{"uniqueid"},
                 "killed_parrot",
                 undef,
                 undef,
                 undef,
-                &getProperties($ev_properties)
+                getProperties($ev_properties)
             );
         }
     } elsif ($s_output =~ /^
@@ -2068,10 +1927,10 @@ sub handleIncoming
         }
         $ev_obj_b  = $15; # weapon
         $ev_properties = $16;
-        %ev_properties_hash = &getProperties($ev_properties);
+        %ev_properties_hash = getProperties($ev_properties);
 
-        my $killerinfo = &getPlayerInfo($ev_player, 1);
-        my $victiminfo = &getPlayerInfo($ev_obj_a, 1);
+        my $killerinfo = getPlayerInfo($ev_player, 1);
+        my $victiminfo = getPlayerInfo($ev_obj_a, 1);
         $ev_type = 8;
 
         $headshot = 0;
@@ -2086,7 +1945,7 @@ sub handleIncoming
 
             # octo
             if($killer->{role} eq "scout") {
-                $ev_status = &doEvent_PlayerAction(
+                $ev_status = doEvent_PlayerAction(
                     $killerinfo->{"userid"},
                     $killerinfo->{"uniqueid"},
                     "kill_as_scout",
@@ -2094,7 +1953,7 @@ sub handleIncoming
                 );
             }
             if($killer->{role} eq "spy") {
-                $ev_status = &doEvent_PlayerAction(
+                $ev_status = doEvent_PlayerAction(
                     $killerinfo->{"userid"},
                     $killerinfo->{"uniqueid"},
                     "kill_as_spy",
@@ -2105,7 +1964,7 @@ sub handleIncoming
             my $victimUniqueId = $victiminfo->{"uniqueid"};
             my $victim         = lookupPlayer($s_addr, $victimId, $victimUniqueId);
 
-            $ev_status = &doEvent_Frag(
+            $ev_status = doEvent_Frag(
                 $killerinfo->{"userid"},
                 $killerinfo->{"uniqueid"},
                 $victiminfo->{"userid"},
@@ -2145,11 +2004,11 @@ sub handleIncoming
         $ev_l4dZcoordKV = $8;
         $ev_obj_b  = $9; # weapon
         $ev_properties = $10;
-        %ev_properties_hash = &getProperties($ev_properties);
+        %ev_properties_hash = getProperties($ev_properties);
 
         # reverse killer/victim (x was incapped by y = y killed x)
-        my $killerinfo = &getPlayerInfo($ev_obj_a, 1);
-        my $victiminfo = &getPlayerInfo($ev_player, 1);
+        my $killerinfo = getPlayerInfo($ev_obj_a, 1);
+        my $victiminfo = getPlayerInfo($ev_player, 1);
 
         if ($victiminfo->{team} eq "Infected") {
             $victiminfo = undef;
@@ -2169,7 +2028,7 @@ sub handleIncoming
             my $victimUniqueId = $victiminfo->{"uniqueid"};
             my $victim         = lookupPlayer($s_addr, $victimId, $victimUniqueId);
 
-            $ev_status = &doEvent_Frag(
+            $ev_status = doEvent_Frag(
                 $killerinfo->{"userid"},
                 $killerinfo->{"uniqueid"},
                 $victiminfo->{"userid"},
@@ -2182,7 +2041,7 @@ sub handleIncoming
                 $ev_l4dXcoordKV,
                 $ev_l4dYcoordKV,
                 $ev_l4dZcoordKV,
-                &getProperties($ev_properties)
+                getProperties($ev_properties)
             );
         }
     } elsif ($g_servers{$s_addr}->{play_game} == L4D() && $s_output =~ /^\(TONGUE\)\sTongue\sgrab\sstarting\.\s+Smoker:"(.+?(?:<.+?>)*?(?:|<setpos_exact ((?:|-)\d+?\.\d\d) ((?:|-)\d+?\.\d\d) ((?:|-)\d+?\.\d\d);.*?))"\.\s+Victim:"(.+?(?:<.+?>)*?(?:|<setpos_exact ((?:|-)\d+?\.\d\d) ((?:|-)\d+?\.\d\d) ((?:|-)\d+?\.\d\d);.*?))".*/) {
@@ -2199,20 +2058,20 @@ sub handleIncoming
         $ev_l4dYcoordV = $7;
         $ev_l4dZcoordV = $8;
 
-        $playerinfo = &getPlayerInfo($ev_player, 1);
-        $victiminfo = &getPlayerInfo($ev_victim, 1);
+        $playerinfo = getPlayerInfo($ev_player, 1);
+        $victiminfo = getPlayerInfo($ev_victim, 1);
 
         $ev_type = 11;
 
         if ($playerinfo) {
-            $ev_status = &doEvent_PlayerAction(
+            $ev_status = doEvent_PlayerAction(
                 $playerinfo->{"userid"},
                 $playerinfo->{"uniqueid"},
                 "tongue_grab"
             );
         }
         if ($playerinfo && $victiminfo) {
-                $ev_status = &doEvent_PlayerPlayerAction(
+                $ev_status = doEvent_PlayerPlayerAction(
                     $playerinfo->{"userid"},
                     $playerinfo->{"uniqueid"},
                     $victiminfo->{"userid"},
@@ -2249,17 +2108,17 @@ sub handleIncoming
         $ev_obj_b  = $4; # victim
         $ev_obj_c  = $5; # weapon (optional)
         $ev_properties = $6;
-        %ev_properties_hash = &getProperties($ev_properties);
+        %ev_properties_hash = getProperties($ev_properties);
 
         if ($ev_verb eq "triggered") {  # it's either 'triggered' or 'triggered a'
 
-            my $playerinfo = &getPlayerInfo($ev_player, 1);
-            my $victiminfo = &getPlayerInfo($ev_obj_b, 1);
+            my $playerinfo = getPlayerInfo($ev_player, 1);
+            my $victiminfo = getPlayerInfo($ev_obj_b, 1);
             $ev_type = 10;
 
             if ($playerinfo) {
                 if ($victiminfo) {
-                    $ev_status = &doEvent_PlayerPlayerAction(
+                    $ev_status = doEvent_PlayerPlayerAction(
                         $playerinfo->{"userid"},
                         $playerinfo->{"uniqueid"},
                         $victiminfo->{"userid"},
@@ -2271,35 +2130,35 @@ sub handleIncoming
                         undef,
                         undef,
                         undef,
-                        &getProperties($ev_properties)
+                        getProperties($ev_properties)
                     );
                 }
 
                 $ev_type = 11;
 
-                $ev_status = &doEvent_PlayerAction(
+                $ev_status = doEvent_PlayerAction(
                     $playerinfo->{"userid"},
                     $playerinfo->{"uniqueid"},
                     $ev_obj_a,
                     undef,
                     undef,
                     undef,
-                    &getProperties($ev_properties)
+                    getProperties($ev_properties)
                 );
             }
         } else {
-            my $playerinfo = &getPlayerInfo($ev_player, 1);
+            my $playerinfo = getPlayerInfo($ev_player, 1);
             $ev_type = 11;
 
             if ($playerinfo) {
-                $ev_status = &doEvent_PlayerAction(
+                $ev_status = doEvent_PlayerAction(
                     $playerinfo->{"userid"},
                     $playerinfo->{"uniqueid"},
                     $ev_obj_a,
                     undef,
                     undef,
                     undef,
-                    &getProperties($ev_properties)
+                    getProperties($ev_properties)
                 );
             }
         }
@@ -2312,11 +2171,11 @@ sub handleIncoming
         $ev_player = $1;
         $ev_verb   = $2; # weaponstats; weaponstats2
         $ev_properties = $3;
-        %ev_properties = &getProperties($ev_properties);
+        %ev_properties = getProperties($ev_properties);
 
         if (like($ev_verb, "weaponstats")) {
             $ev_type = 501;
-            my $playerinfo = &getPlayerInfo($ev_player, 0);
+            my $playerinfo = getPlayerInfo($ev_player, 0);
 
             if ($playerinfo) {
                 my $playerId = $playerinfo->{"userid"};
@@ -2326,10 +2185,10 @@ sub handleIncoming
                 $ingame = 1 if (lookupPlayer($s_addr, $playerId, $playerUniqueId));
 
                 if (!$ingame) {
-                    &getPlayerInfo($ev_player, 1);
+                    getPlayerInfo($ev_player, 1);
                 }
 
-                $ev_status = &doEvent_Statsme(
+                $ev_status = doEvent_Statsme(
                     $playerId,
                     $playerUniqueId,
                     $ev_properties{"weapon"},
@@ -2342,7 +2201,7 @@ sub handleIncoming
                 );
 
                 if (!$ingame) {
-                    &doEvent_Disconnect(
+                    doEvent_Disconnect(
                         $playerId,
                         $playerUniqueId,
                         ""
@@ -2351,7 +2210,7 @@ sub handleIncoming
             }
         } elsif (like($ev_verb, "weaponstats2")) {
             $ev_type = 502;
-            my $playerinfo = &getPlayerInfo($ev_player, 0);
+            my $playerinfo = getPlayerInfo($ev_player, 0);
 
             if ($playerinfo) {
                 my $playerId = $playerinfo->{"userid"};
@@ -2361,10 +2220,10 @@ sub handleIncoming
                 $ingame = 1 if (lookupPlayer($s_addr, $playerId, $playerUniqueId));
 
                 if (!$ingame) {
-                    &getPlayerInfo($ev_player, 1);
+                    getPlayerInfo($ev_player, 1);
                 }
 
-                $ev_status = &doEvent_Statsme2(
+                $ev_status = doEvent_Statsme2(
                     $playerId,
                     $playerUniqueId,
                     $ev_properties{"weapon"},
@@ -2378,7 +2237,7 @@ sub handleIncoming
                 );
 
                 if (!$ingame) {
-                    &doEvent_Disconnect(
+                    doEvent_Disconnect(
                         $playerId,
                         $playerUniqueId,
                         ""
@@ -2395,11 +2254,11 @@ sub handleIncoming
         $ev_player = $1;
         $ev_verb   = $2; # latency; time
         $ev_properties = $3;
-        %ev_properties = &getProperties($ev_properties);
+        %ev_properties = getProperties($ev_properties);
 
         if ($ev_verb eq "time") {
             $ev_type = 504;
-            my $playerinfo = &getPlayerInfo($ev_player, 0);
+            my $playerinfo = getPlayerInfo($ev_player, 0);
 
             if ($playerinfo) {
                 my ($min, $sec) = split(/:/, $ev_properties{"time"});
@@ -2409,7 +2268,7 @@ sub handleIncoming
                     $min = $min % 60;
                 }
 
-                $ev_status = &doEvent_Statsme_Time(
+                $ev_status = doEvent_Statsme_Time(
                     $playerinfo->{"userid"},
                     $playerinfo->{"uniqueid"},
                     "$hour:$min:$sec"
@@ -2417,10 +2276,10 @@ sub handleIncoming
             }
         } else { # latency
             $ev_type = 503;
-            my $playerinfo = &getPlayerInfo($ev_player, 0);
+            my $playerinfo = getProperties($ev_player, 0);
 
             if ($playerinfo) {
-                $ev_status = &doEvent_Statsme_Latency(
+                $ev_status = doEvent_Statsme_Latency(
                     $playerinfo->{"userid"},
                     $playerinfo->{"uniqueid"},
                     $ev_properties{"ping"}
@@ -2433,12 +2292,12 @@ sub handleIncoming
         $ev_clantag = $2;
 
         if ($ev_clantag) {
-            my $playerinfo = &getPlayerInfo($ev_player, 1);
+            my $playerinfo = getPlayerInfo($ev_player, 1);
 
             $ev_type = 600;
 
             if ($playerinfo) {
-                $ev_status = &doEvent_Clan(
+                $ev_status = doEvent_Clan(
                     $playerinfo->{"userid"},
                     $playerinfo->{"uniqueid"},
                     $ev_clantag
@@ -2451,11 +2310,11 @@ sub handleIncoming
         $ev_queryId = $2;
 
         if ($ev_queryId) {
-            my $playerinfo = &getPlayerInfo($ev_player, 1);
+            my $playerinfo = getPlayerInfo($ev_player, 1);
 
             if ($playerinfo) {
                 $ev_type = 101;
-                $ev_status = &doEvent_ApiReqestPlayerInfo($playerinfo->{"userid"}, $playerinfo->{"uniqueid"}, $ev_queryId);
+                $ev_status = doEvent_ApiReqestPlayerInfo($playerinfo->{"userid"}, $playerinfo->{"uniqueid"}, $ev_queryId);
             }
         }
     } elsif ($s_output =~ /^"(.+?(?:<.+?>)*?)"(?:\s\[(-?\d+)\s(-?\d+)\s(-?\d+)\]) ([a-zA-Z,_\s]+) "(.+?)"(.*)$/  && $g_servers{$s_addr}->{play_game} == CSGO()) {
@@ -2468,12 +2327,12 @@ sub handleIncoming
         $ev_obj_a  = $6;
 
         if ($ev_verb eq "committed suicide with") {
-            my $playerinfo = &getPlayerInfo($ev_player, 1);
+            my $playerinfo = getPlayerInfo($ev_player, 1);
 
             $ev_type = 4;
     
             if ($playerinfo) {
-                $ev_status = &doEvent_Suicide(
+                $ev_status = doEvent_Suicide(
                     $playerinfo->{"userid"},
                     $playerinfo->{"uniqueid"},
                     $ev_obj_a,
@@ -2498,24 +2357,7 @@ sub handleIncoming
         $ev_verb   = $2;
         $ev_obj_a  = $3;
         $ev_properties = $4;
-        %ev_properties = &getProperties($ev_properties);
-        #if ($ev_player =~ /^(.+(<.+>))".*(disconnected).*$/) {
-        #    $ev_verb = "";
-        #    my $playerinfo = &getPlayerInfo($ev_player, 0);
-		#
-        #    if ($playerinfo) {
-        #        $ev_type = 3;
-		#
-        #        $userid   = $playerinfo->{userid};
-        #        $uniqueid = $playerinfo->{uniqueid};
-		#
-        #        $ev_status = &doEvent_Disconnect(
-        #            $playerinfo->{userid},
-        #            $playerinfo->{uniqueid},
-        #            ""
-        #        );
-        #    }
-        #}
+        %ev_properties = getProperties($ev_properties);
         if ($ev_verb eq "connected, address") {
             my $ipAddr = $ev_obj_a;
             my $playerinfo;
@@ -2523,7 +2365,7 @@ sub handleIncoming
                 $ipAddr = $1;
             }
 
-            $playerinfo = &getPlayerInfo($ev_player, 1, $ipAddr);
+            $playerinfo = getPlayerInfo($ev_player, 1, $ipAddr);
 
             $ev_type = 1;
 
@@ -2534,7 +2376,7 @@ sub handleIncoming
                     if ($g_mode ne "LAN")  {
                         my $p_name   = $playerinfo->{"name"};
                         my $p_userid = $playerinfo->{"userid"};
-                        &printEvent("SERVER", "LATE CONNECT [$p_name/$p_userid] - STEAM_ID_PENDING",2);
+                        printEvent("SERVER", "LATE CONNECT [$p_name/$p_userid] - STEAM_ID_PENDING",3);
                         $g_preconnect->{"$s_addr/$p_userid/$p_name"} = {
                             ipaddress => $ipAddr,
                             name => $p_name,
@@ -2543,7 +2385,7 @@ sub handleIncoming
                         };
                     }
                 } else {
-                    $ev_status = &doEvent_Connect(
+                    $ev_status = doEvent_Connect(
                         $playerinfo->{"userid"},
                         $playerinfo->{"uniqueid"},
                         $ipAddr
@@ -2551,12 +2393,12 @@ sub handleIncoming
                 }
             }
         } elsif ($ev_verb eq "committed suicide with") {
-            my $playerinfo = &getPlayerInfo($ev_player, 1);
+            my $playerinfo = getPlayerInfo($ev_player, 1);
 
             $ev_type = 4;
 
             if ($playerinfo) {
-                $ev_status = &doEvent_Suicide(
+                $ev_status = doEvent_Suicide(
                     $playerinfo->{"userid"},
                     $playerinfo->{"uniqueid"},
                     $ev_obj_a,
@@ -2566,36 +2408,36 @@ sub handleIncoming
                 );
             }
         } elsif ($ev_verb eq "joined team") {
-            my $playerinfo = &getPlayerInfo($ev_player, 1);
+            my $playerinfo = getPlayerInfo($ev_player, 1);
 
             $ev_type = 5;
 
             if ($playerinfo) {
-                $ev_status = &doEvent_TeamSelection(
+                $ev_status = doEvent_TeamSelection(
                     $playerinfo->{"userid"},
                     $playerinfo->{"uniqueid"},
                     $ev_obj_a
                 );
             }
         } elsif ($ev_verb eq "changed role to") {
-            my $playerinfo = &getPlayerInfo($ev_player, 1);
+            my $playerinfo = getPlayerInfo($ev_player, 1);
 
             $ev_type = 6;
 
             if ($playerinfo) {
-                $ev_status = &doEvent_RoleSelection(
+                $ev_status = doEvent_RoleSelection(
                     $playerinfo->{"userid"},
                     $playerinfo->{"uniqueid"},
                     $ev_obj_a
                 );
             }
         } elsif ($ev_verb eq "changed name to") {
-            my $playerinfo = &getPlayerInfo($ev_player, 1);
+            my $playerinfo = getPlayerInfo($ev_player, 1);
 
             $ev_type = 7;
 
             if ($playerinfo) {
-                $ev_status = &doEvent_ChangeName(
+                $ev_status = doEvent_ChangeName(
                     $playerinfo->{"userid"},
                     $playerinfo->{"uniqueid"},
                     $ev_obj_a
@@ -2606,16 +2448,16 @@ sub handleIncoming
             # in cs:s players dropp the bomb if they are the only ts
             # and disconnect...the dropp the bomb after they disconnected :/
             if ($ev_obj_a eq "Dropped_The_Bomb") {
-              $playerinfo = &getPlayerInfo($ev_player, 0);
+              $playerinfo = getPlayerInfo($ev_player, 0);
             } else {
-              $playerinfo = &getPlayerInfo($ev_player, 1);
+              $playerinfo = getPlayerInfo($ev_player, 1);
             }
             if ($playerinfo) {
                 if ($ev_obj_a eq "player_changeclass" && defined($ev_properties{newclass})) {
 
                     $ev_type = 6;
 
-                    $ev_status = &doEvent_RoleSelection(
+                    $ev_status = doEvent_RoleSelection(
                         $playerinfo->{"userid"},
                         $playerinfo->{"uniqueid"},
                         $ev_properties{newclass}
@@ -2643,7 +2485,7 @@ sub handleIncoming
 
                     $ev_type = 11;
     
-                    $ev_status = &doEvent_PlayerAction(
+                    $ev_status = doEvent_PlayerAction(
                         $playerinfo->{"userid"},
                         $playerinfo->{"uniqueid"},
                         $ev_obj_a,
@@ -2655,13 +2497,13 @@ sub handleIncoming
                 }
             }
         } elsif ($ev_verb eq "triggered a") {
-            my $playerinfo = &getPlayerInfo($ev_player, 1);
+            my $playerinfo = getPlayerInfo($ev_player, 1);
 
             $ev_type = 11;
 
             if ($playerinfo)
             {
-                $ev_status = &doEvent_PlayerAction(
+                $ev_status = doEvent_PlayerAction(
                     $playerinfo->{"userid"},
                     $playerinfo->{"uniqueid"},
                     $ev_obj_a,
@@ -2672,12 +2514,12 @@ sub handleIncoming
                 );
             }
         } elsif ($ev_verb eq "say" || $ev_verb eq "say_team" || $ev_verb eq "say_squad") {
-            my $playerinfo = &getPlayerInfo($ev_player, 1);
+            my $playerinfo = getPlayerInfo($ev_player, 1);
 
             $ev_type = 14;
 
             if ($playerinfo) {
-                $ev_status = &doEvent_Chat(
+                $ev_status = doEvent_Chat(
                     $ev_verb,
                     $playerinfo->{"userid"},
                     $playerinfo->{"uniqueid"},
@@ -2695,16 +2537,16 @@ sub handleIncoming
         $ev_player = $1;
         $ev_verb   = $2;
         $ev_properties = $3;
-        %ev_properties = &getProperties($ev_properties);
+        %ev_properties = getProperties($ev_properties);
 
         if ( like($ev_verb, "entered the game") || ( like($ev_verb, "connection") && $g_servers{$s_addr}->{play_game} == CSGO()  ) ) {
-            my $playerinfo = &getPlayerInfo($ev_player, 1);
+            my $playerinfo = getPlayerInfo($ev_player, 1);
             if ($playerinfo) {
                 $ev_type = 2;
-                $ev_status = &doEvent_EnterGame($playerinfo->{"userid"}, $playerinfo->{"uniqueid"}, $ev_obj_a);
+                $ev_status = doEvent_EnterGame($playerinfo->{"userid"}, $playerinfo->{"uniqueid"}, $ev_obj_a);
             }
         } elsif (like($ev_verb, "disconnected") || like($ev_verb, "was kicked")) {
-            my $playerinfo = &getPlayerInfo($ev_player, 0);
+            my $playerinfo = getPlayerInfo($ev_player, 0);
 
             if ($playerinfo) {
                 $ev_type = 3;
@@ -2712,7 +2554,7 @@ sub handleIncoming
                 $userid   = $playerinfo->{userid};
                 $uniqueid = $playerinfo->{uniqueid};
 
-                $ev_status = &doEvent_Disconnect(
+                $ev_status = doEvent_Disconnect(
                     $playerinfo->{userid},
                     $playerinfo->{uniqueid},
                     $ev_properties
@@ -2722,36 +2564,37 @@ sub handleIncoming
             my $realuserid = undef;
             my ($uniqueid,$steamid);
 
-            if ($g_servers{$s_addr}->{play_game} ==  CS2() || $g_servers{$s_addr}->{play_game} == CSGO() ) {
-                $ev_player =~ /^(.*?)<(\d+)><([^<>]*)><([^<>]*)>(?:<([^<>]*)>)?.*$/;
-                $realuserid = $2;
-                $uniqueid   = $3;
-                $steamid    = $3;
-                $uniqueid =~ s!\[U:1:(\d+)\]!'STEAM_0:'.($1 % 2).':'.int($1 / 2)!eg;
-                $uniqueid =~ s/^STEAM_[0-9]+?\://;	
-                if (defined $realuserid) { # no need?
-                    my $new_key = "$realuserid/$uniqueid";
-                    foreach my $old_key (keys %{ $g_servers{$s_addr}->{srv_players} }) {
-                        if ($old_key =~ m{/.*\Q$uniqueid\E$}) {
+            $ev_player =~ /^(.*?)<(\d+)><([^<>]*)><([^<>]*)>(?:<([^<>]*)>)?.*$/;
+            $realuserid = $2;
+            $uniqueid   = $3;
+            $steamid    = $3;
+            $uniqueid =~ s!\[U:1:(\d+)\]!'STEAM_0:'.($1 % 2).':'.int($1 / 2)!eg;
+            $uniqueid =~ s/^STEAM_[0-9]+?\://;
+            if ( defined $realuserid && $g_servers{$s_addr}->{play_game} ==  CS2() ) {
+                my $new_key = "$realuserid/$uniqueid";
+                foreach my $old_key (keys %{ $g_servers{$s_addr}->{srv_players} }) {
+                    if ( $old_key =~ m{/.*\Q$uniqueid\E$} ) {
+                        if ( $old_key ne $new_key ) {
                             $g_servers{$s_addr}->{srv_players}->{$new_key} = delete $g_servers{$s_addr}->{srv_players}->{$old_key};
                             $g_servers{$s_addr}->{srv_players}->{$new_key}->{userid} = $realuserid;
                             $g_servers{$s_addr}->{srv_players}->{$new_key}->{realuserid} = $realuserid;
-                            &printEvent("CS2","STEAM USERID Validation: $old_key -> $new_key", 2);
-                            last;
+                            printEvent("STEAM", "STEAM USERID Validation -> New Profile -> $old_key -> $new_key", 3);
                         }
+                        last;
                     }
                 }
             }
 
-            my $playerinfo = &getPlayerInfo($ev_player, 0, undef, $realuserid);
+            my $playerinfo = getPlayerInfo($ev_player, 0, undef, $realuserid);
 
             if ($playerinfo) {
 
                 $ev_type = 1;
 
                 if ($g_servers{$s_addr}->{play_game} ==  CS2() || $g_servers{$s_addr}->{play_game} == CSGO() ) {
-                    $ev_status = &doEvent_Connect($playerinfo->{userid}, $playerinfo->{uniqueid}, $playerinfo->{address});
-                }    
+                    $ev_status = doEvent_Connect($playerinfo->{userid}, $playerinfo->{uniqueid}, $playerinfo->{address});
+                }
+
             }
         }
     } elsif ($s_output =~ /^Team "(.+?)" ([^"\(]+) "([^"]+)"(.*)$/) {
@@ -2765,7 +2608,7 @@ sub handleIncoming
         $ev_verb   = $2;
         $ev_obj_a  = $3;
         $ev_properties = $4;
-        %ev_properties_hash = &getProperties($ev_properties);
+        %ev_properties_hash = getProperties($ev_properties);
 
         if ($ev_obj_a eq "pointcaptured") {
             $numcappers = $ev_properties_hash{numcappers};
@@ -2773,16 +2616,16 @@ sub handleIncoming
                 # reward each player involved in capturing
                 $player = $ev_properties_hash{"player".$i};
                 #$position = $ev_properties_hash{"position".$i};
-                my $playerinfo = &getPlayerInfo($player, 1);
+                my $playerinfo = getPlayerInfo($player, 1);
                 if ($playerinfo) {
-                    $ev_status = &doEvent_PlayerAction(
+                    $ev_status = doEvent_PlayerAction(
                         $playerinfo->{"userid"},
                         $playerinfo->{"uniqueid"},
                         $ev_obj_a,
                         "",
                         "",
                         "",
-                        &getProperties($ev_properties)
+                        getProperties($ev_properties)
                     );
                 }
             }
@@ -2792,29 +2635,29 @@ sub handleIncoming
             $player_a  = $ev_properties_hash{player_a};
             $player_b  = $ev_properties_hash{player_b};
 
-            my $playerinfo_a = &getPlayerInfo($player_a, 1);
+            my $playerinfo_a = getPlayerInfo($player_a, 1);
             if ($playerinfo_a) {
-                $ev_status = &doEvent_PlayerAction(
+                $ev_status = doEvent_PlayerAction(
                     $playerinfo_a->{"userid"},
                     $playerinfo_a->{"uniqueid"},
                     $ev_obj_a,
                     "",
                     "",
                     "",
-                    &getProperties($ev_properties)
+                    getProperties($ev_properties)
                 );
             }
 
-            my $playerinfo_b = &getPlayerInfo($player_b, 1);
+            my $playerinfo_b = getPlayerInfo($player_b, 1);
             if ($playerinfo_b) {
-                $ev_status = &doEvent_PlayerAction(
+                $ev_status = doEvent_PlayerAction(
                     $playerinfo_b->{"userid"},
                     $playerinfo_b->{"uniqueid"},
                     $ev_obj_a,
                     "",
                     "",
                     "",
-                    &getProperties($ev_properties)
+                    getProperties($ev_properties)
                 );
             }
         }
@@ -2822,15 +2665,15 @@ sub handleIncoming
         if (like($ev_verb, "triggered")) {
             if ($ev_obj_a ne "captured_loc") {
                 $ev_type = 12;
-                $ev_status = &doEvent_TeamAction(
+                $ev_status = doEvent_TeamAction(
                     $ev_team,
                     $ev_obj_a,
-                    &getProperties($ev_properties)
+                    getProperties($ev_properties)
                 );
             }
         } elsif (like($ev_verb, "triggered a")) {
             $ev_type = 12;
-            $ev_status = &doEvent_TeamAction(
+            $ev_status = doEvent_TeamAction(
                 $ev_team,
                 $ev_obj_a
             );
@@ -2846,12 +2689,12 @@ sub handleIncoming
         $ev_obj_c  = $4; # ip
         $ev_obj_d  = $5; # port
         $ev_properties = $6;
-        %ev_properties = &getProperties($ev_properties);
+        %ev_properties = getProperties($ev_properties);
         if ($g_rcon_ignoreself == 0 || $ev_obj_c ne $s_ip) {
             $ev_obj_b = substr($ev_obj_b, 0, 255);
             if (like($ev_verb, "Rcon")) {
                 $ev_type = 20;
-                $ev_status = &doEvent_Rcon(
+                $ev_status = doEvent_Rcon(
                     "OK",
                     $ev_obj_b,
                     "",
@@ -2859,7 +2702,7 @@ sub handleIncoming
                 );
             } elsif (like($ev_verb, "Bad Rcon")) {
                 $ev_type = 20;
-                $ev_status = &doEvent_Rcon(
+                $ev_status = doEvent_Rcon(
                     "BAD",
                     $ev_obj_b,
                     $ev_obj_a,
@@ -2883,7 +2726,7 @@ sub handleIncoming
                 @cmds = split(/;/,$ev_obj_c);
                 foreach(@cmds)
                 {
-                    $ev_status = &doEvent_Rcon(
+                    $ev_status = doEvent_Rcon(
                         "OK",
                         substr($_, 0, 255),
                         "",
@@ -2892,7 +2735,7 @@ sub handleIncoming
                 }
             } else {
                 $ev_type = 20;
-                $ev_status = &doEvent_Rcon(
+                $ev_status = doEvent_Rcon(
                     "BAD",
                     "",
                     "",
@@ -2911,7 +2754,7 @@ sub handleIncoming
         my $ev_adminmod = $2;
         $ev_obj_a  = $3;
         $ev_type = 500;
-        $ev_status = &doEvent_Admin(
+        $ev_status = doEvent_Admin(
             (($ev_adminmod eq "smx")?"Sourcemod":"AMXX")." ($ev_plugin)",
             substr($ev_obj_a, 0, 255)
         );
@@ -2925,21 +2768,21 @@ sub handleIncoming
         $ev_verb   = $1;
         $ev_obj_a  = $2;
         $ev_properties = $3;
-        %ev_properties = &getProperties($ev_properties);
+        %ev_properties = getProperties($ev_properties);
 
         if (like($ev_verb, "World triggered")) {
             $ev_type = 13;
             if ($ev_obj_a eq "killlocation") {
-                $ev_status = &doEvent_Kill_Loc(
+                $ev_status = doEvent_Kill_Loc(
                     %ev_properties
                 );
             } else {
-                $ev_status = &doEvent_WorldAction(
+                $ev_status = doEvent_WorldAction(
                     $ev_obj_a
                 );
                 if ($ev_obj_a eq "Round_Win" || $ev_obj_a eq "Mini_Round_Win") {
                     $ev_team = $ev_properties{"winner"};
-                    $ev_status = &doEvent_TeamAction(
+                    $ev_status = doEvent_TeamAction(
                     $ev_team,
                     $ev_obj_a
                     );
@@ -2947,13 +2790,13 @@ sub handleIncoming
             }
         } elsif (like($ev_verb, "Loading map")) {
             $ev_type = 19;
-            $ev_status = &doEvent_ChangeMap(
+            $ev_status = doEvent_ChangeMap(
                 "loading",
                 $ev_obj_a
             );
         } elsif (like($ev_verb, "Started map")) {
             $ev_type = 19;
-            $ev_status = &doEvent_ChangeMap(
+            $ev_status = doEvent_ChangeMap(
                 "started",
                 $ev_obj_a
             );
@@ -2966,7 +2809,7 @@ sub handleIncoming
 
         if (like($ev_verb, "Started")) {
             $ev_type = 19;
-            $ev_status = &doEvent_ChangeMap(
+            $ev_status = doEvent_ChangeMap(
                 "started",
                 ""
             );
@@ -2978,7 +2821,7 @@ sub handleIncoming
 
         $ev_obj_a  = $1;
         $ev_type = 500;
-        $ev_status = &doEvent_Admin(
+        $ev_status = doEvent_Admin(
             "Mani Admin Plugin",
             substr($ev_obj_a, 0, 255)
         );
@@ -2989,7 +2832,7 @@ sub handleIncoming
 
         $ev_obj_a  = $1;
         $ev_type = 500;
-        $ev_status = &doEvent_Admin(
+        $ev_status = doEvent_Admin(
             "Beetles Mod",
             substr($ev_obj_a, 0, 255)
         );
@@ -3001,7 +2844,7 @@ sub handleIncoming
         $ev_obj_a  = $1;
         $ev_obj_b  = $2;
         $ev_type = 500;
-        $ev_status = &doEvent_Admin(
+        $ev_status = doEvent_Admin(
             "Admin Mod",
             substr($ev_obj_b, 0, 255),
             $ev_obj_a
@@ -3027,7 +2870,7 @@ sub handleIncoming
 
             foreach $player (values(%{$g_servers{$s_addr}->{"srv_players"}})) {
                 if ($player->{uniqueid} eq $steamid) {
-                    $ev_status = &doEvent_Statsme(
+                    $ev_status = doEvent_Statsme(
                         $player->{"userid"},
                         $steamid,
                         $weapcode,
@@ -3052,7 +2895,7 @@ sub handleIncoming
 
             foreach $player (values(%{$g_servers{$s_addr}->{"srv_players"}})) {
                 if ($player->{uniqueid} eq $steamid) {
-                    $ev_status = &doEvent_RoleSelection(
+                    $ev_status = doEvent_RoleSelection(
                         $player->{"userid"},
                         $steamid,
                         $role
@@ -3069,7 +2912,7 @@ sub handleIncoming
             my $action = $2;
             foreach $player (values(%{$g_servers{$s_addr}->{"srv_players"}})) {
                 if ($player->{uniqueid} eq $steamid) {
-                    $ev_status = &doEvent_PlayerAction(
+                    $ev_status = doEvent_PlayerAction(
                         $player->{"userid"},
                         $steamid,
                         $action
@@ -3081,7 +2924,7 @@ sub handleIncoming
     }
 
     if ($ev_type) {
-        if ($g_debug == 4) {
+        if ($g_debug == 9) {
             print <<EOT
                 type   = "$ev_type"
                 team   = "$ev_team"
@@ -3103,10 +2946,10 @@ EOT
            }
        }
 
-        if ($ev_status ne "") {
-            &printEvent($ev_type, $ev_status,4);
+        if ($ev_status) {
+            printEvent($ev_type, $ev_status,9);
         } else {
-            &printEvent($ev_type, "BAD DATA: $s_output",4);
+            printEvent($ev_type, "BAD DATA: $s_output",9);
         }
     } elsif (($s_output =~ /^Banid: "(.+?(?:<.+?>)*)" was (?:kicked and )?banned "for ([0-9]+).00 minutes" by "Console"$/) ||
         ($s_output =~ /^Banid: "(.+?(?:<.+?>)*)" was (?:kicked and )?banned "(permanently)" by "Console"$/)) {
@@ -3116,18 +2959,18 @@ EOT
 
         $ev_player  = $1;
         $ev_bantime = $2;
-        my $playerinfo = &getPlayerInfo($ev_player, 1);
+        my $playerinfo = getPlayerInfo($ev_player, 1);
 
         if ($ev_bantime eq "5") {
-            &printEvent("BAN", "Auto Ban - ignored",2);
+            printEvent("BAN", "Auto Ban - ignored",2);
         } elsif ($playerinfo) {
             if (($g_global_banning > 0) && ($g_servers{$s_addr}->{ignore_nextban}->{$playerinfo->{"uniqueid"}} == 1)) {
                 delete($g_servers{$s_addr}->{ignore_nextban}->{$playerinfo->{"uniqueid"}});
-                &printEvent("BAN", "Global Ban - ignored");
+                printEvent("BAN", "Global Ban - ignored",2);
             } elsif (!$g_servers{$s_addr}->{ignore_nextban}->{$playerinfo->{"uniqueid"}}) {
                 my $p_steamid  = $playerinfo->{"uniqueid"};
                 my $player_obj = lookupPlayer($s_addr, $playerId, $p_steamid);
-                &printEvent("BAN", "Steamid: ".$p_steamid,2);
+                printEvent("BAN", "Steamid: ".$p_steamid,2);
 
                 if ($player_obj) {
                     $player_obj->{"is_banned"} = 1;
@@ -3135,14 +2978,14 @@ EOT
                 if (($p_steamid ne "") && ($playerinfo->{"is_bot"} == 0) && ($playerinfo->{"userid"} > 0 || $g_servers{$s_addr}->{play_game} == CS2())) {
                     if ($g_global_banning > 0) {
                         if ($ev_bantime eq "permanently") {
-                            &printEvent("BAN", "Hide player!",2);
-                            &execNonQuery("UPDATE hlstats_Players SET hideranking=2 WHERE playerId IN (SELECT playerId FROM hlstats_PlayerUniqueIds WHERE uniqueId='".&quoteSQL($p_steamid)."')");
+                            printEvent("BAN", "Hide player!",2);
+                            exec_now("UPDATE hlstats_Players SET hideranking=2 WHERE playerId IN (SELECT playerId FROM hlstats_PlayerUniqueIds WHERE uniqueId=?)", $p_steamid);
                             $ev_bantime = 0;
                         }
                         my $pl_steamid  = $playerinfo->{"plain_uniqueid"};
                         while (my($addr, $server) = each(%g_servers)) {
                             if ($addr ne $s_addr) {
-                                &printEvent("BAN", "Global banning on ".$addr,2);
+                                printEvent("BAN","Global banning on ".$addr,2);
                                 $server->{ignore_nextban}->{$p_steamid} = 1;
                                 $server->dorcon("banid ".$ev_bantime." $pl_steamid");
                                 $server->dorcon("writeid");
@@ -3152,13 +2995,13 @@ EOT
                 }  
             }  
         } else {
-            &printEvent("BAN", "No playerinfo",2);
+            printEvent("BAN", "No playerinfo",2);
         }
 
     }
 
     if (!$g_stdin && defined($g_servers{$s_addr}) && $ev_daemontime > $g_servers{$s_addr}->{next_plyr_flush}) {
-        &printEvent("MYSQL", "Flushing player updates to database...",2,1);
+        printEvent("MYSQL", "Flushing player updates to database...",4);
         if ($g_servers{$s_addr}->{"srv_players"}) {
             while ( my($pl, $player) = each(%{$g_servers{$s_addr}->{"srv_players"}}) ) {
                 if ($player->{needsupdate}) {
@@ -3166,8 +3009,6 @@ EOT
                 }
             }
         }
-        &printEvent("MYSQL", "Flushing player updates to database is complete.",2,1);
-
         $g_servers{$s_addr}->{next_plyr_flush} = $ev_daemontime + 15+int(rand(15));
     }
 
@@ -3197,7 +3038,7 @@ sub handleData
 {
     $ev_unixtime   = time();
     $ev_daemontime = $ev_unixtime;
- 
+
      foreach my $server (keys %g_servers)
     {
         next unless blessed($g_servers{$server});
@@ -3209,7 +3050,7 @@ sub handleData
                 if ( $g_servers{$server}->{track_server_timestamp} + 299 < $ev_daemontime ) {
                     $g_servers{$server}->track_server_load();
                     $g_servers{$server}->{track_server_timestamp} = $ev_daemontime;
-                    printEvent("SERVER", "Insert new server load timestamp", 2);
+                    printEvent("SERVER", "Insert new server load timestamp", 1);
                     $g_servers{$server}->{num_players_load} = 0;
                 }
             } else { $g_servers{$server}->{track_server_timestamp} = $ev_daemontime };
@@ -3225,7 +3066,7 @@ sub handleData
                     my $uniqueid  = $player->{uniqueid};
                     if ( $player->{timestamp} && ($ev_daemontime - $player->{timestamp}) > $t) {
                         if (!defined($status_players{$uniqueid})) {
-                            printEvent(400, "Auto-disconnecting " . $player->{name} ." for idling (" . ($ev_daemontime - $player->{timestamp}) . " sec) on server ($server)",2);
+                            printEvent("PLAYER", "Auto-disconnecting " . $player->{name} ." for idling (" . ($ev_daemontime - $player->{timestamp}) . " sec)",3);
                             removePlayer($server, $userid, $uniqueid);
                         }
                     }
@@ -3248,7 +3089,7 @@ sub handleData
         my $player = $g_preconnect{$pl};
         my $t = 600;
         if ( ($ev_unixtime - $player->{"timestamp"}) > $t ) {
-            &printEvent(401, "Clearing pre-connect entry with key ".$pl,2);
+            printEvent("PLAYER", "Clearing pre-connect entry with key ".$pl,3);
             delete($g_preconnect{$pl});
         }
     }
@@ -3269,15 +3110,14 @@ sub handleData
     }
     
     # No DATA
-    $timeout++;
     if ($udpTime+$udpPulse <=  $ev_daemontime) {
         my $_s = $ev_daemontime-$udpTime;
-        &printEvent("HLSTATSX", "[UDP] No data since $_s seconds",2);
+        printEvent("HLSTATSZ", "[UDP] No data since $_s seconds",2);
         $udpPulse += 120;
     }
     if ($httpTime+$httpPulse <=  $ev_daemontime) {
         my $_s = $ev_daemontime-$httpTime;
-        &printEvent("HLSTATSX", "[HTTP] No data since $_s seconds",2);
+        printEvent("HLSTATSZ", "[HTTP] No data since $_s seconds",2);
         $httpPulse += 120;
     }
 
@@ -3294,7 +3134,7 @@ sub INT_handler
 sub HUP_handler
 {
     print "SIGHUP received. Flushing data and reloading configuration...\n";
-    &reloadConfiguration;
+    reloadConfiguration;
 }
 
 ##
@@ -3310,6 +3150,7 @@ $db_host = "localhost";
 $db_user = "";
 $db_pass = "";
 $db_name = "hlstats";
+$db_driver = "mysql";
 $db_lowpriority = 1;
 
 $s_ip = "";
@@ -3407,7 +3248,7 @@ a MySQL database.
       --nostdin                   disables above
       --server-ip                 specify data source IP address for --stdin
       --server-port               specify data source port for --stdin  [$g_server_port]
-  -t, --timestamp                 tells HLstatsX:CE to use the timestamp in the log
+  -t, --timestamp                 tells HLstatsZ to use the timestamp in the log
                                     data, instead of the current time on the
                                     database server, when recording events
       --notimestamp               disables above
@@ -3422,16 +3263,11 @@ Most options can be specified in the configuration file:
 Note: Options set on the command line take precedence over options set in the
 configuration file. The configuration file name is set at the top of hlstats.pl.
 
-HLstatsX: Community Edition http://www.hlxcommunity.com
+HLstatsZ: https://forums.alliedmods.net/forumdisplay.php?f=156
 EOT
 ;
 
 %g_config_servers = ();
-$s_output   = "";
-$s_peerhost = "";
-$s_peerport = "";
-$s_addr="";
-$ipAddr= undef;
 
 # Read Config File
 if ($opt_configfile && -r $opt_configfile) {
@@ -3442,44 +3278,45 @@ if ($opt_configfile && -r $opt_configfile) {
         "DBUsername",            "db_user",
         "DBPassword",            "db_pass",
         "DBName",                "db_name",
-        "DBLowPriority",        "db_lowpriority",
+        "DBDriver",              "db_driver",
+        "DBLowPriority",         "db_lowpriority",
         "BindIP",                "s_ip",
-        "Port",                    "s_port",
+        "Port",                  "s_port",
         "DebugLevel",            "g_debug",
         "CpanelHack",            "g_cpanelhack",
         "EventQueueSize",        "g_event_queue_size"
     );
 
     %directives_mysql = (
-        "version",                    "g_version",
+        "version",                   "g_version",
         "MailTo",                    "g_mailto",
-        "MailPath",                    "g_mailpath",
-        "Mode",                        "g_mode",
+        "MailPath",                  "g_mailpath",
+        "Mode",                      "g_mode",
         "DeleteDays",                "g_deletedays",
-        "UseTimestamp",                "g_timestamp",
-        "DNSResolveIP",                "g_dns_resolveip",
+        "UseTimestamp",              "g_timestamp",
+        "DNSResolveIP",              "g_dns_resolveip",
         "DNSTimeout",                "g_dns_timeout",
         "RconIgnoreSelf",            "g_rcon_ignoreself",
-        "Rcon",                        "g_rcon",
+        "Rcon",                      "g_rcon",
         "RconRecord",                "g_rcon_record",
         "MinPlayers",                "g_minplayers",
         "SkillMaxChange",            "g_skill_maxchange",
         "SkillMinChange",            "g_skill_minchange",
         "PlayerMinKills",            "g_player_minkills",
         "AllowOnlyConfigServers",    "g_onlyconfig_servers",
-        "TrackStatsTrend",            "g_track_stats_trend",
-        "GlobalBanning",            "g_global_banning",
-        "LogChat",                    "g_log_chat",
-        "LogChatAdmins",            "g_log_chat_admins",
+        "TrackStatsTrend",           "g_track_stats_trend",
+        "GlobalBanning",             "g_global_banning",
+        "LogChat",                   "g_log_chat",
+        "LogChatAdmins",             "g_log_chat_admins",
         "GlobalChat",                "g_global_chat",
-        "SkillRatioCap",            "g_skill_ratio_cap",
-        "rankingtype",                "g_ranktype",
+        "SkillRatioCap",             "g_skill_ratio_cap",
+        "rankingtype",               "g_ranktype",
         "UseGeoIPBinary",            "g_geoip_binary",
-        "Proxy_Key",                "proxy_key"
+        "Proxy_Key",                 "proxy_key"
     );
 
 #        "Servers",                "g_config_servers"
-    &doConf($conf, %directives);
+    doConf($conf, %directives);
 
 } else {
     print "-- Warning: unable to open configuration file '$opt_configfile'\n";
@@ -3520,7 +3357,7 @@ if ($configfile && -r $configfile) {
     $conf = '';
     $conf = ConfigReaderSimple->new($configfile);
     $conf->parse();
-    &doConf($conf, %directives);
+    doConf($conf, %directives);
 }
 
 # these are set above, we then reload them to override values in the actual config
@@ -3543,25 +3380,12 @@ if ($opt_help) {
 }
 
 # Connect to the database
-&doConnect;
-&readDatabaseConfig;
-&buildEventInsertData;
+DB_connect();
+readDatabaseConfig();
+buildEventInsertData();
 
 if ($opt_version) {
-    my $result = &doQuery("
-        SELECT
-            value
-        FROM
-            hlstats_Options
-        WHERE
-            keyname='version'
-    ");
-
-    if ($result->rows > 0) {
-        $g_version = $result->fetchrow_array;
-    }
-    $result->finish;
-    print "\nhlstats.pl (HLstatsX Community Edition) Version $g_version\n"
+    print "\nhlstats.pl (HLstatsZ) Version $g_version\n"
         . "Real-time player and clan rankings and statistics for Half-Life 2\n"
         . "Modified (C) 2025 SnipeZilla.com\n"
         . "Modified (C) 2008-20XX  Nicholas Hastings (nshastings@gmail.com)\n"
@@ -3576,6 +3400,7 @@ if ($opt_version) {
     
     print "\nThis is free software; see the source for copying conditions.  There is NO\n"
         . "warranty; not even for MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.\n\n";
+    sleep(5);
     exit(0);
 }
 
@@ -3587,63 +3412,63 @@ $g_debug -= $g_nodebug;
 $g_debug = 0 if ($g_debug < 0);
 
 # Startup
-&printEvent("HLSTATSX", "HLstatsX:CE $g_version starting...", 1);
+printEvent("HLSTATSZ", "HLstatsZ $g_version starting...", 1);
 
 # STDIN
 if ($g_stdin) {
     $g_rcon = 0;
-    &printEvent("UDP", "UDP listen socket disabled, reading log data from STDIN.", 1);
+    printEvent("UDP", "UDP listen socket disabled, reading log data from STDIN.", 1);
     if (!$g_server_ip || !$g_server_port) {
-        &printEvent("UDP", "ERROR: You must specify source of STDIN data using --server-ip and --server-port", 1);
-        &printEvent("UDP", "Example: ./hlstats.pl --stdin --server-ip 12.34.56.78 --server-port 27015", 1);
+        printEvent("UDP", "ERROR: You must specify source of STDIN data using --server-ip and --server-port", 1);
+        printEvent("UDP", "Example: ./hlstats.pl --stdin --server-ip 64.74.97.164 --server-port 27015", 1);
         exit(255);
     } else {
-        &printEvent("UDP", "All data from STDIN will be allocated to server '$g_server_ip:$g_server_port'.", 1);
+        printEvent("UDP", "All data from STDIN will be allocated to server '$g_server_ip:$g_server_port'.", 1);
         $s_peerhost = $g_server_ip;
         $s_peerport = $g_server_port;
         $s_addr = "$s_peerhost:$s_peerport";
     }
 }
 if ($g_track_stats_trend > 0) {
-    &printEvent("HLSTATSX", "Tracking Trend of the stats are enabled", 1);
+    printEvent("HLSTATSZ", "Tracking Trend of the stats are enabled", 1);
 }
 
 if ($g_global_banning > 0) {
-    &printEvent("HLSTATSX", "Global Banning on all servers is enabled", 1);
+    printEvent("HLSTATSZ", "Global Banning on all servers is enabled", 1);
 }
 
-&printEvent("HLSTATSX", "Maximum Skill Change on all servers are ".$g_skill_maxchange." points", 1);
-&printEvent("HLSTATSX", "Minimum Skill Change on all servers are ".$g_skill_minchange." points", 1);
-&printEvent("HLSTATSX", "Minimum Players Kills on all servers are ".$g_player_minkills." kills", 1);
+printEvent("HLSTATSZ", "Maximum Skill Change on all servers are ".$g_skill_maxchange." points", 1);
+printEvent("HLSTATSZ", "Minimum Skill Change on all servers are ".$g_skill_minchange." points", 1);
+printEvent("HLSTATSZ", "Minimum Players Kills on all servers are ".$g_player_minkills." kills", 1);
 
 if ($g_log_chat > 0) {
-    &printEvent("HLSTATSX", "Players chat logging is enabled", 1);
+    printEvent("HLSTATSZ", "Players chat logging is enabled", 1);
     if ($g_log_chat_admins > 0) {
-        &printEvent("HLSTATSX", "Admins chat logging is enabled", 1);
+        printEvent("HLSTATSZ", "Admins chat logging is enabled", 1);
     }
 }
 
 if ($g_global_chat == 1) {
-    &printEvent("HLSTATSX", "Broadcasting public chat to all players is enabled", 1);
+    printEvent("HLSTATSZ", "Broadcasting public chat to all players is enabled", 1);
 } elsif ($g_global_chat == 2) {
-    &printEvent("HLSTATSX", "Broadcasting public chat to admins is enabled", 1);
+    printEvent("HLSTATSZ", "Broadcasting public chat to admins is enabled", 1);
 } else {
-    &printEvent("HLSTATSX", "Broadcasting public chat is disabled", 1);
+    printEvent("HLSTATSZ", "Broadcasting public chat is disabled", 1);
 }
 
-&printEvent("HLSTATSX", "Event queue size is set to ".$g_event_queue_size, 1);
+printEvent("HLSTATSZ", "Event queue size is set to ".$g_event_queue_size, 1);
 
 %g_servers = ();
 
-&printEvent("HLSTATSX", "HLstatsX:CE is now running ($g_mode mode, debug level $g_debug)", 1);
+printEvent("HLSTATSZ", "HLstatsZ is now running ($g_mode mode, debug level $g_debug)", 1);
 
 $start_time = time();
 if ($g_stdin) {
     $g_timestamp       = 1;
     $start_parse_time  = time();
     $import_logs_count = 0;
-    &printEvent("IMPORT", "Start importing logs. Every dot signs 500 parsed lines", 1);
-    while ($loop = &getLine()) {
+    printEvent("IMPORT", "Start importing logs. Every dot signs 500 parsed lines", 1);
+    while ($loop = getLine()) {
         $s_output = $loop;
         if (($import_logs_count > 0) && ($import_logs_count % 500 == 0)) {
             $parse_time = $ev_unixtime - $start_parse_time;
@@ -3661,35 +3486,37 @@ if ($g_stdin) {
     if ($import_logs_count > 0) {
          print "\n";
     }
-    &flushAll(1);
-    &execNonQuery("UPDATE hlstats_Players SET last_event=UNIX_TIMESTAMP();");
-    &printEvent("IMPORT", "Import of log file complete. Scanned ".$import_logs_count." lines in ".($end_time-$start_time)." seconds", 1);
+    flushAll(1);
+    exec_now("UPDATE hlstats_Players SET last_event=UNIX_TIMESTAMP();");
+    printEvent("IMPORT", "Import of log file complete. Scanned ".$import_logs_count." lines in ".($end_time-$start_time)." seconds", 1);
 }
 
 # Cleaner!
-&doQuery("TRUNCATE TABLE hlstats_Livestats");
+exec_now("TRUNCATE TABLE hlstats_Livestats");
 
-# Loop start, nothing will be read after; but sub
+# Loop start
+our $s_addr = "";
 if ($g_stdin == 0) {
     # port open?
     $udpTime   = time();
     $udpPulse  = 120;
     $httpTime  = time();
     $httpPulse = 120;
-    $timeout   = 0;
+
     # init UDP
     $udp_socket = IO::Socket::INET->new(
         Proto     => "udp",
         LocalAddr => "",
         LocalPort => $s_port
-    ) or warn "\nCan't setup UDP socket on port:$s_port: $!\n";
-
+    ) or do {
+        warn "\nCan't Setup UDP Daemon on $s_port: $!\n\n";
+        undef;
+    };
     if ($udp_socket) {
         $udp_socket->blocking(0);
         printEvent("UDP", "Opening UDP listen socket on port:$s_port ... ok", 1);
         my $loop = Mojo::IOLoop->singleton;
         $loop->reactor->io($udp_socket => sub {
-            $timeout       = 0;
             $ev_unixtime   = time();
             $ev_daemontime = $ev_unixtime;
             $udpTime      = $ev_unixtime;
@@ -3699,34 +3526,31 @@ if ($g_stdin == 0) {
             my $peer_addr = recv($udp_socket, $data, 1024, 0);
             return unless defined $data && $peer_addr;
             my ($port, $ip_raw) = sockaddr_in($peer_addr);
-            $s_peerhost = inet_ntoa($ip_raw);
-            $s_peerport = $port;
-            handleIncoming("UDP", decode('utf8', $data));
+            my $s_peerhost = inet_ntoa($ip_raw);
+            $s_addr = "$s_peerhost:$port";
+            handleIncoming("UDP", $data);
         });
 
         $loop->reactor->watch($udp_socket, 1, 0);
     }
 
     # init HTTP
-    # BEGIN { $ENV{MOJO_REACTOR} = 'Mojo::Reactor::Poll' }
     $daemon = Mojo::Server::Daemon->new(
         listen => ["http://0.0.0.0:$s_port"],
         silent => 1
-    ) or warn "\nCan't setup HTTP daemon on $s_port: $!\n";
-   
+    ) or do {
+        warn "\nCan't Setup HTTP Daemon on $s_port: $!\n\n";
+        undef;
+    };
     if ( $daemon ) {
         printEvent("HTTP", "Opening HTTP on port:$s_port ... ok", 1);
         $daemon->on(request => sub {
-            $timeout       = 0;
             $ev_unixtime   = time();
             $ev_daemontime = $ev_unixtime;
             $httpTime      = $ev_unixtime;
             $httpPulse     = 120;
             my ($daemon, $tx) = @_;
-            my $addr = $tx->req->headers->header('X-Server-Addr') || 'unknown:port';
-            ($s_peerhost, $s_peerport) = split(/:/, $addr);
-            $s_peerhost //= 'unknown';
-            $s_peerport //= 0;
+            $s_addr = $tx->req->headers->header('X-Server-Addr') // 'unknown:0';
             my @lines = split(/\r?\n/, $tx->req->body);
             foreach my $data (@lines) {
                  if ($data =~ /^(?:L\s*)?(\d{2}\/\d{2}\/\d{4} - \d{2}:\d{2}:\d{2}(?:\.\d{3})?)/) {

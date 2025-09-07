@@ -1,43 +1,20 @@
 package HLstats_Server;
-# HLstatsX Community Edition - Real-time player and clan rankings and statistics
-# Copyleft (L) 2008-20XX Nicholas Hastings (nshastings@gmail.com)
-# http://www.hlxcommunity.com
+# HLstatsZ - Real-time player and clan rankings and statistics
+# Originally HLstatsX Community Edition by Nicholas Hastings (2008–20XX)
+# Based on ELstatsNEO by Malte Bayer, HLstatsX by Tobias Oetzel, and HLstats by Simon Garner
 #
-# HLstatsX Community Edition is a continuation of 
-# ELstatsNEO - Real-time player and clan rankings and statistics
-# Copyleft (L) 2008-20XX Malte Bayer (steam@neo-soft.org)
-# http://ovrsized.neo-soft.org/
+# HLstats > HLstatsX > HLstatsX:CE > HLStatsZ
+# HLstatsZ continues a long lineage of open-source server stats tools for Half-Life and Source games.
+# This version is released under the GNU General Public License v2 or later.
 # 
-# ELstatsNEO is an very improved & enhanced - so called Ultra-Humongus Edition of HLstatsX
-# HLstatsX - Real-time player and clan rankings and statistics for Half-Life 2
-# http://www.hlstatsx.com/
-# Copyright (C) 2005-2007 Tobias Oetzel (Tobi@hlstatsx.com)
-#
-# HLstatsX is an enhanced version of HLstats made by Simon Garner
-# HLstats - Real-time player and clan rankings and statistics for Half-Life
-# http://sourceforge.net/projects/hlstats/
-# Copyright (C) 2001  Simon Garner
-#             
-# This program is free software; you can redistribute it and/or
-# modify it under the terms of the GNU General Public License
-# as published by the Free Software Foundation; either version 2
-# of the License, or (at your option) any later version.
-#
-# This program is distributed in the hope that it will be useful,
-# but WITHOUT ANY WARRANTY; without even the implied warranty of
-# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
-# GNU General Public License for more details.
-#
-# You should have received a copy of the GNU General Public License
-# along with this program; if not, write to the Free Software
-# Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA  02111-1307, USA.
-# 
-# For support and installation notes visit http://www.hlxcommunity.com
+# For current support and updates:
+#    https://snipezilla.com
+#    https://github.com/SnipeZilla
+#    https://forums.alliedmods.net/forumdisplay.php?f=156
 
 use POSIX;
 use IO::Socket;
 use Socket;
-use Encode;
 
 do "$::opt_libdir/HLstats_GameConstants.plib";
 
@@ -191,11 +168,8 @@ sub new
     
     $self->set_play_game($realgame);
 
-    if ($self->{rcon})
-    {
-        $self->init_rcon();
-    }
-    
+    $self->init_rcon() if ($self->{rcon}); 
+
     $self->updateDB();
     $self->update_server_loc();
 
@@ -295,16 +269,6 @@ sub get_game_mod_opts
             } else {
                 $self->{format_actionend} = "\x01";
             }
-            if ($self->{play_game} == TF()){
-                #sourcemod plugin overwrite
-                $self->{format_A} = "";
-                $self->{format_B} = "";
-            } 
-            if ($self->{play_game} == CSS()){
-                #sourcemod plugin overwrite
-                $self->{format_A} = "";
-                $self->{format_B} = "";
-            }             
             if ($self->{play_game} == CS2()){
                 $self->{format_A} = " \x0B";
                 $self->{format_B} = " \x10";
@@ -409,8 +373,8 @@ sub init_rcon
     }
 
        if ($self->{rcon_obj}) {
-        &::printEvent ("SERVER", "Connecting to rcon on $server_ip:$server_port ... ok",1);
-        &::printEvent("SERVER", "Server running map: ".$self->get_map(), 1);
+        ::printEvent ("HLSATSZ", "Connecting to rcon on $server_ip:$server_port ... ok",1);
+        ::printEvent("HLSTATSZ", "Server running map: ".$self->get_map(), 1);
         if ($::g_mode eq "LAN") {
             $self->get_lan_players();
         }
@@ -427,11 +391,11 @@ sub dorcon
         # replace ; to avoid executing multiple rcon commands.
         $command  =~ s/;//g ;
 
-        &::printEvent("RCON", $command, 2);
+        ::printEvent("RCON", $command, 3);
         $result = $rcon_obj->execute($command);
 
     } else {
-        &::printEvent("Rcon","error: No Object available",2);
+        ::printEvent("RCON", "error: No Object available",3);
     }
     return $result;
 }
@@ -453,19 +417,19 @@ sub dorcon_multi
                 $cmd =~ s/;//g;
                 $fullcmd .="$cmd;";
             }
-            &::printEvent("RCON", $fullcmd, 2);
+            ::printEvent("RCON", $fullcmd, 3);
             $result = $rcon_obj->execute($fullcmd);
         }
         else
         {
             foreach (@commands)
             {
-                &::printEvent("RCON", $_, 2);
+                ::printEvent("RCON", $_, 3);
                 $result = $rcon_obj->execute($_);
             }
         }
     } else {
-      &::printEvent("RCON","error: No Object available",2);
+      ::printEvent("RCON", "error: No Object available",3);
     }
     return $result;
 }    
@@ -481,7 +445,7 @@ sub rcon_getaddress
     }
     else
     {
-        &::printEvent("Rcon","error: No Object available",1);
+        ::printEvent("Rcon", "error: No Object available",3);
     }
     return $result;
 }
@@ -495,14 +459,15 @@ sub rcon_getStatus
     my $servhostname = "";
     my $difficulty = 0;
     
-    if (($rcon_obj) && ($::g_rcon == 1) && ($self->{rcon} ne "")) {
-        ($servhostname, $map_result, $max_player_result, $difficulty)    = $rcon_obj->getServerData();
-        ($visible_maxplayers)                = $rcon_obj->getVisiblePlayers();
-        if (($visible_maxplayers != -1) && ($visible_maxplayers < $max_player_result)) {
+    if (($rcon_obj) && ($::g_rcon == 1) && ($self->{rcon})) {
+        ($servhostname, $map_result, $max_player_result, $difficulty) = $rcon_obj->getServerData();
+        ($visible_maxplayers) = $rcon_obj->getVisiblePlayers();
+        if ( ($visible_maxplayers != -1) && ( ($visible_maxplayers < $max_player_result) || $max_player_result == 0) ) {
             $max_player_result = $visible_maxplayers;
         }
+        ::printEvent("RCON", " Max players: $max_player_result",1);
     } else {
-        &::printEvent("Rcon","error: No Object available",2);
+        ::printEvent("Rcon", "error: No Object available",3);
     }
     return ($map_result, $max_player_result, $servhostname, $difficulty);
 }
@@ -516,7 +481,7 @@ sub rcon_getplayers
     {
         %result = $rcon_obj->getPlayers();
     } else {
-        &::printEvent("Rcon","error: No Object available",2);
+        ::printEvent("Rcon", "error: No Object available",3);
     }
     return %result;
 }
@@ -546,7 +511,7 @@ sub track_server_load {
         $map = $self->{map};
 
     }
-    &::execCached("flush_server_load",
+    ::exec_cache("flush_server_load",
         "INSERT IGNORE INTO hlstats_server_load
             SET
                 server_id=?,
@@ -557,7 +522,7 @@ sub track_server_load {
                 map=?,
                 uptime=?,
                 fps=?",
-        $self->{id},,
+        $self->{id},
         $new_timestamp,
         $self->{num_players_load},
         $self->{minplayers},
@@ -580,13 +545,15 @@ sub dostats
         if ($self->{broadcasting_events} == 1)
         {
             my $hpk = sprintf("%.0f", 0);
+            my $HLstatsZ = $self->{play_game} == CS2() ? "HLstats\x07Z\x01" :
+                          ($self->{play_game} == CSS() || $self->{play_game} == TF()) ? "HLstats\x03Z\x01" : "HLstatsZ";
             if ($self->{total_kills} > 0) {
                 $hpk = sprintf("%.2f", (100/$self->{total_kills})*$self->{total_headshots});
             }  
             if ($rcmd ne "") {
-                $self->dorcon("$rcmd ".$self->quoteparam("HLstatsX:CE - Tracking ".&::number_format($self->{players})." players with ".&::number_format($self->{total_kills})." kills and ".&::number_format($self->{total_headshots})." headshots ($hpk%)"));
+                $self->dorcon("$rcmd ".$self->quoteparam("$HLstatsZ - Tracking ".::number_format($self->{players})." players with ".::number_format($self->{total_kills})." kills and ".::number_format($self->{total_headshots})." headshots ($hpk%)"));
             } else {
-                $self->messageAll("HLstatsX:CE - Tracking ".&::number_format($self->{players})." players with ".&::number_format($self->{total_kills})." kills and ".&::number_format($self->{total_headshots})." headshots ($hpk%)");
+                $self->messageAll("$HLstatsZ - Tracking ".::number_format($self->{players})." players with ".::number_format($self->{total_kills})." kills and ".::number_format($self->{total_headshots})." headshots ($hpk%)");
             }  
         }  
     }  
@@ -595,16 +562,16 @@ sub dostats
 sub get_map
 {
     my ($self, $fromupdate, $host) = @_;
-
+    return unless defined $self->{map};
     if (!defined $::g_stdin || $::g_stdin == 0) {
 
-        if ( ( (time() - $self->{last_check}) > 120 ) || ( defined $host && $self->{map} ne $host{"map"} && length($host{"map"}) ) ) {
+        if ( ( (time() - $self->{last_check}) > 120 ) ||
+               ( defined $host && $self->{map} ne $host{"map"} && length($host{"map"}) ) ) {
 
             $self->{last_check} = time();
-            &::printEvent("RCON","get_map",4);
             my $temp_map        = "";
             my $temp_maxplayers = -1;
-            my $servhostname      = "";
+            my $servhostname    = "";
             my $difficulty      = 0;
             my $update          = 0;
             
@@ -626,7 +593,7 @@ sub get_map
                         $update++;
                     }
 
-                    if (($temp_maxplayers != -1) && ($temp_maxplayers > 0) && ($temp_maxplayers ne "")) {
+                    if (($temp_maxplayers != -1) && ($temp_maxplayers > 0) && ($temp_maxplayers)) {
                         if ($self->{maxplayers} != $temp_maxplayers) {
                             $self->{maxplayers} = $temp_maxplayers;
                             $update++;
@@ -635,7 +602,7 @@ sub get_map
                     if (($difficulty > 0) && ($self->{play_game} == L4D())) {
                         $self->{difficulty} = $difficulty;
                     }
-                    if (($self->{update_hostname} > 0) && ($self->{name} ne $servhostname) && ($servhostname ne "")) {
+                    if (($self->{update_hostname} > 0) && ($self->{name} ne $servhostname) && ($servhostname)) {
                         $self->{name} = $servhostname;
                         $update++;
                     }
@@ -648,7 +615,7 @@ sub get_map
                 $self->updateDB();
             }
 
-            &::printEvent("RCON","get_map successfully",2,1);
+            ::printEvent("RCON", "Got map ".$self->{map}." successfully",3);
         }
     }
 
@@ -662,11 +629,11 @@ sub update_players_pings
 
     if ($self->{num_trackable_players} < $self->{minplayers}) 
     {
-        &::printEvent('',"(IGNORED) NOT MIN PLAYERS: Update_player_pings",2);
+        ::printEvent("RCON", "(IGNORED) NOT MIN PLAYERS: Update_player_pings",3);
     }
     else
     {
-        &::printEvent("RCON", "Update Player pings", 2);
+        ::printEvent("RCON", "Update Player pings", 3);
         my %players = $self->rcon_getplayers();
         while ( my($pl, $player) = each(%{$self->{srv_players}}) )
         {
@@ -678,7 +645,7 @@ sub update_players_pings
                     my $ping = $players{$uniqueid}->{"Ping"};
                     $player->set("ping", $ping);
                     if ($ping > 0) {
-                        &::recordEvent(
+                        ::recordEvent(
                             "Latency", 0,
                             $player->{playerid},
                             $ping
@@ -687,7 +654,6 @@ sub update_players_pings
                 }
             }
         }
-        &::printEvent("RCON","update_player_pings successfully",2,1);
     }
 }
 
@@ -696,7 +662,6 @@ sub get_lan_players
     my ($self) = @_;
 
     if ($::g_mode eq "LAN")  {
-        &::printEvent("RCON", "Get LAN players", 2);
         my %players = $self->rcon_getplayers();
         while ( my($p_uid, $p_obj) = each(%players) )
         {    
@@ -711,14 +676,14 @@ sub get_lan_players
                 server => $srv_addr
             };
         }
-        &::printEvent("RCON","get_lan_players successfully",2,1);
+        ::printEvent("RCON", "get_lan_players successfully",3);
     }
 }
 
 sub clear_winner
 {
   my ($self) = @_;
-  &::printEvent("clear_winner",'',2);
+  ::printEvent("clear_winner", '',3);
   @{$self->{winner}} = ();
 }
 
@@ -726,7 +691,7 @@ sub add_round_winner
 {
     my ($self, $team) = @_;
   
-    &::printEvent("add_round_winner",'',2);
+    ::printEvent("add_round_winner", '',3);
     $self->{winner}[($self->{map_rounds} % 7)] = $team;
     $self->increment("ba_map_rounds");
     $self->increment("map_rounds");
@@ -755,9 +720,9 @@ sub switch_player
     if ($self->{player_command_hint} eq "") {
         $rcmd = $self->{player_command};
     }
-    $self->dorcon(sprintf("%s %s %s", $rcmd, $self->format_userid($playerid), $self->quoteparam("HLstatsX:CE - You were switched to balance teams")));
+    $self->dorcon(sprintf("%s %s %s", $rcmd, $self->format_userid($playerid), $self->quoteparam("HLstatsZ - You were switched to balance teams")));
     if ($self->{player_admin_command} ne "") {
-        $self->dorcon(sprintf("%s %s",$self->{player_admin_command}, $self->quoteparam("HLstatsX:CE - $name was switched to balance teams")));
+        $self->dorcon(sprintf("%s %s",$self->{player_admin_command}, $self->quoteparam("HLstatsZ - $name was switched to balance teams")));
     }
 }
 
@@ -768,11 +733,11 @@ sub analyze_teams
   
     if (($::g_stdin == 0) && ($self->{num_trackable_players} < $self->{minplayers})) 
     {
-        &::printEvent('',"(IGNORED) NOTMINPLAYERS: analyze_teams",2);
+        ::printEvent("TEAMS", "(IGNORED) NOTMINPLAYERS: analyze_teams",3);
     }
     elsif (($::g_stdin == 0) && ($self->{ba_enabled} > 0))
     {
-        &::printEvent('',"analyze_teams",2);
+        ::printEvent("TEAMS", "analyze_teams",3);
         my $ts_skill     = 0;
         my $ts_avg_skill = 0;
         my $ts_count     = 0;
@@ -825,7 +790,7 @@ sub analyze_teams
         @ct_players = sort { $b->[6] <=> $a->[6]} @ct_players;
         @ts_players = sort { $b->[6] <=> $a->[6]} @ts_players;
     
-        &::printEvent("TEAM", "Checking Teams", 2);
+        ::printEvent("TEAM", "Checking Teams", 3);
         $admin_msg = "AUTO-TEAM BALANCER: CT ($ct_count) $ct_kills:$ct_deaths  [$ct_wins - $ts_wins] $ts_kills:$ts_deaths ($ts_count) TS";
         if ($self->{player_events} == 1)  
         {
@@ -835,7 +800,7 @@ sub analyze_teams
             }  
         }
     
-        $self->messageAll("HLstatsX:CE - ATB - Checking Teams", 0, 1);
+        $self->messageAll("HLstatsZ - ATB - Checking Teams", 0, 1);
 
         if ($self->{ba_map_rounds} >= 2)    # need all players for numerical balacing, at least 2 for getting all players
         {
@@ -1066,7 +1031,7 @@ sub flushDB
     
     my $serverid      = $self->{id};
 
-    my $result = &::execCached(
+    my $result = ::exec_cache(
         "get_server_player_info",
         "SELECT
             kills,
@@ -1084,10 +1049,10 @@ sub flushDB
     ($self->{total_kills}, $self->{total_headshots}, $self->{total_suicides},$self->{total_rounds},$self->{total_shots},$self->{total_hits}) = $result->fetchrow_array();
     $result->finish;
 
-    my $result = &::execCached(
+    my $result = ::exec_cache(
         "get_player_count",
         "SELECT count(*) as players FROM hlstats_Players WHERE game=? and hideranking<>2 and lastAddress <> ''",
-        &::quoteSQL($self->{game}));
+        $self->{game});
     $self->{players} = $result->fetchrow_array();
     $result->finish;
 
@@ -1127,7 +1092,7 @@ sub flushDB
             serverId=?
     ";
     my @vals = (
-        &::quoteSQL($self->{name}),
+        $self->{name},
         $self->{rounds},
         $self->{kills},
         $self->{suicides},
@@ -1139,7 +1104,7 @@ sub flushDB
         $self->{ts_wins},
         $self->{numplayers},
         $self->{maxplayers},
-        &::quoteSQL($self->{map}),
+        $self->{map},
         $self->{map_rounds},
         $self->{map_ct_wins},
         $self->{map_ts_wins},
@@ -1156,7 +1121,7 @@ sub flushDB
         $::ev_unixtime,
         $serverid
     );
-    &::execCached("update_server_stats", $query, @vals);
+    ::exec_cache("update_server_stats", $query, @vals);
 
     $self->set("rounds", 0);
     $self->set("kills", 0);
@@ -1178,105 +1143,82 @@ sub flush_player_count
 {
     my ($self) = @_;
     
-    &::execCached("flush_plyr_cnt",
-        "UPDATE hlstats_Servers SET act_players=? WHERE serverId=?",
-        $self->{num_players_load},
-        $self->{id}
-    );
+    ::exec_cache("flush_plyr_cnt", "UPDATE hlstats_Servers SET act_players=? WHERE serverId=?", $self->{num_players_load}, $self->{id});
 }
 
-sub update_server_loc
-{
+sub update_server_loc {
     my ($self)      = @_;
     my $serverid    = $self->{id};
     my $server_ip   = $self->{address};
-    my $publicaddress = $self->{publicaddress};
 
-    my $found = 0;
-    my $servcity = undef;
-    my $servcountry = undef;
-    my $servlat=undef;
-    my $servlng=undef;
-    if ($::g_geoip_binary > 0) {
-        if(!defined($::g_gi)) {
-            return;
-        }
+    my ($servcity, $servcountry, $servlat, $servlng);
 
-        my $geoCity = undef;
-
+    # If MaxMind binary API loaded
+    if ($::g_geoip_binary && $::g_gi) {
+        my $geoCity;
         eval { $geoCity = $::g_gi->city( ip => $server_ip ); };
         $geoCity = undef if $@;
 
         if ($geoCity) {
-
             my $geoCityRec = $geoCity->city();
-            my $geoCountryRec = $geoCity->country();
-            my $geoLocationRec = $geoCity->location();
-            my $geoPostalRec = $geoCity->postal();
-            my $geoMostSpecificSubdivision = $geoCity->most_specific_subdivision();
+            my $geoCountry   = $geoCity->country();
+            my $geoLocation  = $geoCity->location();
+            my $geoSubdivision = $geoCity->most_specific_subdivision();
 
-            $country_code = $geoCountryRec->iso_code();
-            $country_name = $geoCountryRec->name();
-            $region = $geoMostSpecificSubdivision->name();
-            $city = $geoCityRec->name();
-            $postal_code = $geoPostalRec->code();
-            $latitude = $geoLocationRec->latitude();
-            $longitude = $geoLocationRec->longitude();
-        }            
+            my $city_name    = $geoCityRec     ? $geoCityRec->name()        : undef;
+            my $country_name = $geoCountry     ? $geoCountry->name()        : undef;
+            my $latitude     = $geoLocation    ? $geoLocation->latitude()   : undef;
+            my $longitude    = $geoLocation    ? $geoLocation->longitude()  : undef;
 
-        if ($longitude) {
+            if (defined $longitude && defined $latitude) {
+                $servcity    = $city_name;
+                $servcountry = $country_name;
+                $servlat = $latitude;
+                $servlng = $longitude;
 
-            $found++;
-            $servcity = ((defined($city))?encode("utf8",$city):"");
-            $servcountry = ((defined($country_name))?encode("utf8",$country_name):"");
-            $servlat = $latitude;
-            $servlng = $longitude;
-        }
-    
-    } else {
-        my @ipp = split (/\./,$server_ip);
-        my $ip_number = $ipp[0]*16777216+$ipp[1]*65536+$ipp[2]*256+$ipp[3];
-        my $query = "
-            SELECT locId FROM geoLiteCity_Blocks WHERE startIpNum<= $ip_number AND endIpNum>= $ip_number LIMIT 1";
-        my $result = &::doQuery($query);
-        if ($result->rows > 0) {
-            my $locid = $result->fetchrow_array;
-            $result->finish;
-            my $query = "
-                SELECT
-                    city,
-                    name AS country,
-                    latitude AS lat,
-                    longitude AS lng
-                FROM
-                    geoLiteCity_Location a 
-                INNER JOIN
-                    hlstats_Countries b ON a.country=b.flag
-                WHERE
-                    locId= $locid
-                LIMIT 1";
-            my $result = &::doQuery($query);
-            if ($result->rows > 0) {
-                $found++;
-                ($servcity,$servcountry,$servlat,$servlng) = $result->fetchrow_array;
-                $result->finish;
+                ::exec_now(
+                    "UPDATE hlstats_Servers SET city=?, country=?, lat=?, lng=? WHERE serverId=?",
+                    $servcity, $servcountry, $servlat, $servlng, $serverid
+                );
             }
         }
+        return 1;
     }
-    if ($found > 0) {
-        my $query = "
-            UPDATE
-                `hlstats_Servers`
-            SET
-                city = '".(defined($servcity)?&::quoteSQL($servcity):"")."',
-                country='".(defined($servcountry)?&::quoteSQL($servcountry):"")."',
-                lat=".((defined($servlat))?$servlat:"NULL").",
-                lng=".((defined($servlng))?$servlng:"NULL")."
-            WHERE
-                serverId =$serverid
-        ";
-        &::execNonQuery($query);
-    }
+    # GeoLite tables
+    my @oct = split(/\./, $server_ip // '');
+    return 0 unless @oct == 4;  # invalid IP -> nothing to do
+    my $ip_number = $oct[0]*16777216 + $oct[1]*65536 + $oct[2]*256 + $oct[3];
+    # 1) lookup locId
+    my $res =::query_now(
+        "SELECT locId FROM geoLiteCity_Blocks WHERE startIpNum<=? AND endIpNum>=? LIMIT 1",
+        $ip_number, $ip_number);
+    return unless ($res->rows > 0);
+
+    my $locid = $res->fetchrow_array;
+    $res->finish;
+
+    my $res2 = ::query_now(
+            "SELECT a.city, b.name AS country, a.latitude AS lat, a.longitude AS lng
+             FROM geoLiteCity_Location a
+             INNER JOIN hlstats_Countries b ON a.country = b.flag
+             WHERE a.locId = ?
+             LIMIT 1",
+            $locid
+        );
+    return unless ($res2->rows > 0);
+
+    ($servcity,$servcountry,$servlat,$servlng) = $result->fetchrow_array;
+    $res->finish;
+
+    # Use undef for NULLs
+    ::exec_now(
+        "UPDATE hlstats_Servers SET city=?, country=?, lat=?, lng=? WHERE serverId=?",
+        (defined $servcity ? $servcity : undef),
+        (defined $servcountry ? $servcountry : undef),
+        (defined $servlat ? $servlat : undef),
+        (defined $servlng ? $servlng : undef),
+        $serverid
+    );
 }
 
 sub messageAll
@@ -1371,7 +1313,7 @@ sub setHlxCvars
     
     if ($self->{play_game} eq "MANI" && $self->dorcon("mani_hlx_prefix" =~ /gameme/i))
     {
-        $self->dorcon("mani_hlx_prefix \"HLstatsX\"");
+        $self->dorcon("mani_hlx_prefix \"HLstatsZ\"");
     }
 }
 
@@ -1380,7 +1322,7 @@ sub updatePlayerCount
     my ($self) = @_;
     
     if ($::g_debug > 1) {
-        &::printEvent("SERVER","Updating Player Count",2);
+        &::printEvent("SERVER", "Updating Player Count",3);
     }
     
     my $trackable = 0;
