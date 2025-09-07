@@ -1,41 +1,16 @@
 package TRcon;
+# HLstatsZ - Real-time player and clan rankings and statistics
+# Originally HLstatsX Community Edition by Nicholas Hastings (2008–20XX)
+# Based on ELstatsNEO by Malte Bayer, HLstatsX by Tobias Oetzel, and HLstats by Simon Garner
 #
-# TRcon Perl Module - execute commands on a remote Half-Life2 server using remote console.
-#
-# HLstatsX Community Edition - Real-time player and clan rankings and statistics
-# Copyleft (L) 2008-20XX Nicholas Hastings (nshastings@gmail.com)
-# http://www.hlxcommunity.com
-#
-# HLstatsX Community Edition is a continuation of 
-# ELstatsNEO - Real-time player and clan rankings and statistics
-# Copyleft (L) 2008-20XX Malte Bayer (steam@neo-soft.org)
-# http://ovrsized.neo-soft.org/
+# HLstats > HLstatsX > HLstatsX:CE > HLStatsZ
+# HLstatsZ continues a long lineage of open-source server stats tools for Half-Life and Source games.
+# This version is released under the GNU General Public License v2 or later.
 # 
-# ELstatsNEO is an very improved & enhanced - so called Ultra-Humongus Edition of HLstatsX
-# HLstatsX - Real-time player and clan rankings and statistics for Half-Life 2
-# http://www.hlstatsx.com/
-# Copyright (C) 2005-2007 Tobias Oetzel (Tobi@hlstatsx.com)
-#
-# HLstatsX is an enhanced version of HLstats made by Simon Garner
-# HLstats - Real-time player and clan rankings and statistics for Half-Life
-# http://sourceforge.net/projects/hlstats/
-# Copyright (C) 2001  Simon Garner
-#             
-# This program is free software; you can redistribute it and/or
-# modify it under the terms of the GNU General Public License
-# as published by the Free Software Foundation; either version 2
-# of the License, or (at your option) any later version.
-#
-# This program is distributed in the hope that it will be useful,
-# but WITHOUT ANY WARRANTY; without even the implied warranty of
-# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
-# GNU General Public License for more details.
-#
-# You should have received a copy of the GNU General Public License
-# along with this program; if not, write to the Free Software
-# Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA  02111-1307, USA.
-# 
-# For support and installation notes visit http://www.hlxcommunity.com
+# For current support and updates:
+#    https://snipezilla.com
+#    https://github.com/SnipeZilla
+#    https://forums.alliedmods.net/forumdisplay.php?f=156
 
 use strict;
 no strict 'vars';
@@ -84,7 +59,7 @@ sub execute
       
     my $answer = $self->sendrecv($command, $splitted_answer);
     if (defined $answer && $answer =~ /bad rcon_password/i) {
-      &::printEvent("TRCON", "Bad Password",1);
+      ::printEvent("RCON", "Bad Password",1);
     }
     return $answer;
   }  
@@ -96,15 +71,15 @@ sub get_auth_code
   my $auth = 0;
   
   if ($id == $AUTH_PACKET_ID) {
-    &::printEvent("TRCON", "Rcon password accepted",1);
+    ::printEvent("RCON", "Rcon password accepted",1);
     $auth = 1;
     $self->{"auth"} = 1;
   } elsif( $id == -1) {
-    &::printEvent("TRCON", "Rcon password refused",1);
+    ::printEvent("RCON", "Rcon password refused",1);
     $self->{"auth"} = 0;
     $auth           = 0;
   } else {
-    &::printEvent("TRCON", "Bad password response id=$id",1);
+    ::printEvent("RCON", "Bad password response id=$id",1);
     $self->{"auth"} = 0;
     $auth           = 0;
   }
@@ -124,10 +99,10 @@ sub sendrecv
           shutdown($self->{"rcon_socket"}, 2);
           $self->{"rcon_socket"}->close();
           $self->{"rcon_socket"} = undef;
-          &::printEvent("TRCON", "Closing TCP socket on $server_object->{address}:$server_object->{port}: $!",1);
+          ::printEvent("RCON", "Closing TCP socket on $server_object->{address}:$server_object->{port}: $!",1);
       }
 
-      &::printEvent("TRCON", "Attempting TCP socket on $server_object->{address}:$server_object->{port}: $!",1,1);
+      ::printEvent("RCON", "Attempting TCP socket on $server_object->{address}:$server_object->{port}: $!",1);
 
       $self->{"rcon_socket"} = IO::Socket::INET->new(
           Proto    => "tcp",
@@ -137,9 +112,9 @@ sub sendrecv
       );
 
       unless ($self->{"rcon_socket"}) {
-          &::printEvent("TRCON", "Cannot setup TCP socket on $server_object->{address}:$server_object->{port}: $!",1);
+          ::printEvent("RCON", "Cannot setup TCP socket on $server_object->{address}:$server_object->{port}: $!",1);
       } else {
-          &::printEvent("TRCON", " TCP socket is now open on $server_object->{address}:$server_object->{port}: $!",1,1);
+          ::printEvent("RCON", " TCP socket is now open on $server_object->{address}:$server_object->{port}",1);
           binmode($self->{"rcon_socket"}, ':raw');
           $self->{"rcon_socket"}->autoflush(1);
       }
@@ -155,9 +130,9 @@ sub sendrecv
   if (($r_socket) && ($r_socket->connected() )) {
 
     if ($auth == 0)  {
-      &::printEvent("TRCON", "Trying to get rcon access (auth)",1);
+      ::printEvent("RCON", "Trying to get rcon access (auth)",1);
       if ($self->send_rcon($AUTH_PACKET_ID, $SERVERDATA_AUTH, $server->{rcon}, 1)) {
-        &::printEvent("TRCON", "Couldn't send password");
+        ::printEvent("RCON", "Couldn't send password", 1);
         return;
       }
       my ($id, $command, $response) = $self->recieve_rcon($AUTH_PACKET_ID);
@@ -166,7 +141,7 @@ sub sendrecv
       } elsif (($command == $SERVERDATA_RESPONSE_VALUE) && ($id == $AUTH_PACKET_ID)) {  
          #Source servers sends one junk packet during the authentication step, before it responds 
          # with the correct authentication response.  
-         &::printEvent("TRCON", "Junk packet from Source Engine");
+         ::printEvent("RCON", "Junk packet from Source Engine",3);
          my ($id, $command, $response) = $self->recieve_rcon($AUTH_PACKET_ID);
          $auth = $self->get_auth_code($id);
       }
@@ -228,14 +203,14 @@ sub send_rcon
     return 1 unless defined $data;
 
     if (length($data) > 4096) {
-        &::printEvent("TRCON", "Command too long to send!",1);
+        ::printEvent("RCON", "Command too long to send!",1);
         return 1;
     }
 
     my $n = syswrite($sock, $data);
     if ($!) {
         $self->{rcon_err}++;
-        &::printEvent("RCON", "$!",1);
+        ::printEvent("RCON", "$!",1);
     }
 
     return ($n // 0) == length($data) ? 0 : 1;
@@ -265,7 +240,7 @@ sub _read_exact {
             return undef if $n == 0;  # EOF
             $buf .= $chunk;
         } else {
-            &::printEvent("RCON", "Socket read error: $!", 1);
+            ::printEvent("RCON", "Socket read error: $!", 1);
             return undef;
         }
     }
@@ -278,26 +253,26 @@ sub _recv_one_packet {
 
     my $sel = IO::Select->new($sock);
     unless ($sel->can_read($timeout)) {
-        &::printEvent("RCON", "Socket can't read: stalled or crashed", 1);
+        ::printEvent("RCON", "Socket can't read: stalled or crashed", 1);
         $self->{rcon_err}++;
         return;
     }
 
     my $hdr = _read_exact($sock, 4);
     unless ($hdr) {
-        &::printEvent("RCON", "Failed to read packet header", 1);
+        ::printEvent("RCON", "Failed to read packet header", 1);
         return;
     }
 
     my $len = unpack('V', $hdr);
     if ($len < 10 || $len > 65536) {
-        &::printEvent("RCON", "Invalid packet length: $len", 1);
+        ::printEvent("RCON", "Invalid packet length: $len", 1);
         return;
     }
 
     my $payload = _read_exact($sock, $len);
     unless ($payload) {
-        &::printEvent("RCON", "Failed to read packet payload (len=$len)", 1);
+        ::printEvent("RCON", "Failed to read packet payload (len=$len)", 1);
         return;
     }
 
@@ -359,7 +334,7 @@ sub recieve_rcon
     }
 
     # Deadline reached.
-    &::printEvent("RCON", "Timeout: Socket stalled", 1);
+    ::printEvent("RCON", "Timeout: Socket stalled", 1);
     $self->{rcon_err}++ unless $msg;
     return ( ($msg ne '') ? ($packet_id, $SERVERDATA_RESPONSE_VALUE, $msg) : (-1, -1, undef) );
 }
@@ -438,8 +413,6 @@ sub updateSlot
         if ( exists $::g_servers{$server}->{srv_players}->{$old_key} && $old_key ne $new_key) {
             $::g_servers{$server}->{srv_players}->{$new_key} = delete $::g_servers{$server}->{srv_players}->{$old_key};
             $::g_servers{$server}->{srv_players}->{$new_key}->{userid} = $p->{UserID};
-        }
-        if ( exists $::g_servers{$server}->{srv_players}->{$new_key} ) {
             $::g_servers{$server}->{srv_players}->{$new_key}->{realuserid} = $p->{realuserid};
         }
     }
@@ -448,7 +421,7 @@ sub updateSlot
 sub getPlayers
 {
     my ($self,$steamid,$slot_name) = @_;
-    my $game = $self->{server_object}->{play_game} ;
+   my $game = $self->{server_object}->{play_game} ;
     my $command = ($game == CS2()) ? "users;status" : ($game == L4D()) ? "z_difficulty;status" : "status";
     my $server = "$self->{server_object}->{address}:$self->{server_object}->{port}";
     my $status = $self->execute($command, 1);
@@ -560,18 +533,18 @@ sub getPlayers
                 $md5->add($server);
                 $uniqueid = "BOT:" . $md5->hexdigest;
             }
-            $userid_to_slot{$userid} = $userid unless defined $userid_to_slot{$userid};
-            my $uniqueid = $self->find_steamid($userid,$userid_to_slot{$userid});
-            if (!defined $uniqueid && defined $steamid && defined $slot_name && $slot_name eq $userid_to_slot{$userid}."/".$name) {
+            my $slot = defined($userid_to_slot{$userid}) ? $userid_to_slot{$userid} : $userid;
+            my $uniqueid = $self->find_steamid($userid, $slot);
+            if (!defined $uniqueid && defined $steamid && defined $slot_name && $slot_name eq $slot."/".$name) {
                 $uniqueid = $steamid; # new player cs2
             }
             my $key = ($::g_mode eq "NameTrack") ? $name : ($::g_mode eq "LAN") ? $address : $uniqueid;
             next unless $key;
             $players{$key} = {
-                "slot"       => $userid_to_slot{$userid},
+                "slot"       => $slot,
                 "Name"       => $name,
                 "UserID"     => $userid,
-                "realuserid" => $userid,
+                "realuserid" => ($slot ne $userid ? $userid: ''),
                 "UniqueID"   => $uniqueid,
                 "Time"       => $time,
                 "Ping"       => $ping,
@@ -595,7 +568,7 @@ sub getServerData
   my ($self) = @_;
 
   my $status = $self->execute("status", 1);
-
+  return ("", "", 0, 0) unless $status;
   my $server_object = $self->{server_object};
   my $game = $server_object->{play_game};  
 
@@ -646,14 +619,13 @@ sub getVisiblePlayers
   
 
   my $max_players = -1;
-  foreach my $line (@lines)
-  {
-   # "sv_visiblemaxplayers" = "-1"
-   #       - Overrides the max players reported to prospective clients
-    if ($line =~ /^\s*"sv_visiblemaxplayers"\s*=\s*"([-0-9]+)".*$/x)
-    {
-      $max_players   = $1;
-    }
+  foreach my $line (@lines) {
+
+      # "sv_visiblemaxplayers" = "-1"
+      # - Overrides the max players reported to prospective clients
+      if ($line =~ /"?sv_visiblemaxplayers"?\s*=\s*"?([-0-9]+)"?.*$/x) {
+          $max_players   = $1;
+      }
   }
   return ($max_players);
 }
