@@ -1,3 +1,4 @@
+#!/usr/bin/perl
 # HLstatsZ - Real-time player and clan rankings and statistics
 # Originally HLstatsX Community Edition by Nicholas Hastings (2008–20XX)
 # Based on ELstatsNEO by Malte Bayer, HLstatsX by Tobias Oetzel, and HLstats by Simon Garner
