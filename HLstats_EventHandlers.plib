@@ -2006,8 +2006,8 @@ sub doEvent_WorldAction
     my $desc="";
     my $act_players = $g_servers{$s_addr}->{num_trackable_players};
     my $min_players = $g_servers{$s_addr}->{minplayers};
-    my $HLstatsZ = $self->{play_game} == CS2() ? "HLstats\x07Z\x01" :
-                  ($self->{play_game} == CSS() || $self->{play_game} == TF()) ? "HLstats\x03Z\x01" : "HLstatsZ";
+    my $HLstatsZ = $g_servers{$s_addr}->{play_game} == CS2() ? "HLstats\x07Z\x01" :
+                  ($g_servers{$s_addr}->{play_game} == CSS() || $g_servers{$s_addr}->{play_game} == TF()) ? "HLstats\x03Z\x01" : "HLstatsZ";
     if ($act_players < $min_players) {
         $desc = "(IGNORED) NOTMINPLAYERS: ";
         if ($action eq "Round_Start") {
