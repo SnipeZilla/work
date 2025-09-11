@@ -125,11 +125,11 @@ sub new
     $self->updateTrackable();
     $self->{plain_uniqueid} = $params{plain_uniqueid};
     $self->setUniqueId($params{uniqueid});
-    $self->setName($params{name});
-    $self->getAddress();
     if ($::g_stdin == 0 && ( ($self->{userid} > 0 || $::g_servers{$self->{server}}->{play_game} == CS2())) ) {
         $self->insertPlayerLivestats();
     }
+    $self->setName($params{name});
+    $self->getAddress();
     $self->flushDB();
 
     ::printEvent("MYSQL", "Created new player object " . $self->getInfoString(),4);
@@ -320,7 +320,7 @@ sub insertPlayer
        return $playerid;
     }
 
-    my $query = "
+    my $query = q{
         INSERT INTO
             hlstats_Players
             (
@@ -340,11 +340,10 @@ sub insertPlayer
             UNIX_TIMESTAMP(),
             ?
         )
-    ";
+    };
     my @vals = ($self->{name}, $self->{clan}, $::g_servers{$srv_addr}->{game}, $self->{display_events}, $hideval);
-    ::exec_cache("player_insert", $query, @vals);
-
-    $self->{playerid} = $::dbh->{'mysql_insertid'};
+    my $res = ::exec_cache("player_insert", $query, @vals);
+    $self->{playerid} = $res->{'mysql_insertid'};
 }
 
 #

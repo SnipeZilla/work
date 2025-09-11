@@ -175,7 +175,7 @@ sub track_hlstats_trend {
                 @{[ join ",", @rows ]}
         };
         exec_now($insert_sql);
-        ::printEvent("MYSQL", "Inserted server trend timestamp", 4);
+        printEvent("MYSQL", "Inserted server trend timestamp", 4);
     }
 
     $last_trend_timestamp = $ev_daemontime;
@@ -288,14 +288,9 @@ sub flushEventTable {
 
     my $full_query = $query_prefix . $values_sql;
 
-    eval {
-        exec_now($full_query);
-        $g_eventtable_data{$table}{queue} = [];
-        printEvent("MYSQL", "Flushed $count events to '$table'", 4);
-    };
-    if ($@) {
-        printEvent("MYSQL", "Flush failed for '$table': $@", 4);
-    }
+    exec_now($full_query);
+    $g_eventtable_data{$table}{queue} = [];
+    printEvent("MYSQL", "Flushed $count events to '$table'", 4);
 }
 
 #
@@ -613,7 +608,7 @@ sub getClanId {
         };
         exec_now($sql_ins, $clanTag, $clanName, $g_servers{$s_addr}->{game});
         my $clanid = $dbh->{'mysql_insertid'};
-        ::printEvent("CLAN", qq{Created/fetched clan "$clanName" <C:$clanid> with tag "$clanTag"}, 3);
+        printEvent("MYSQL", qq{Created/fetched clan "$clanName" <C:$clanid> with tag "$clanTag"}, 4);
         return $clanid + 0;
     }
 }

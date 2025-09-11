@@ -9,7 +9,7 @@
 # For current support and updates, visit: https://snipezilla.com or https://github.com/SnipeZilla
 
 # HLstatsZ release version number
-$g_version = "2.3.0b";
+$g_version = "2.3.0c";
 
 my %stmt_cache = ();
 %g_eventTables = (
@@ -136,17 +136,16 @@ sub query_now {
         printEvent("MYSQL", "Prepare failed:\n$sql\n$DBI::errstr", 1);
         return;
     }
-
     $sth->execute(@bind);
     return $sth
 }
 
 sub exec_now {
-    my ($sql,@bind) = @_;
+    my ($sql, @bind) = @_;
     DB_connect();
-    eval { $dbh->do($sql, undef, @bind) };
-    printEvent("MYSQL", "Exec failed:\n$sql\n$@" || $DBI::errstr, 1) if $@;
+    $dbh->do($sql, undef, @bind);
 }
+
 
 sub exec_cache {
     my ($query_id, $sql, @bind) = @_;
