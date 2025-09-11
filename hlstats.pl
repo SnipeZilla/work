@@ -115,7 +115,6 @@ sub checkBonusRound
 sub is_number ($) { ( $_[0] ^ $_[0] ) eq '0' }
 
 our $last_trend_timestamp = 0;
-
 sub track_hlstats_trend {
 
     # Run every 5 min
@@ -222,58 +221,49 @@ sub send_global_chat
 #
 my %g_eventtable_data = ();
 
-sub buildEventInsertData
-{
+sub buildEventInsertData {
     my $insertType = "";
     $insertType = " DELAYED" if ($db_lowpriority);
-    while ( my ($table, $colsref) = each(%g_eventTables) )
-    {
-        $g_eventtable_data{$table}{queue} = [];
-        $g_eventtable_data{$table}{nullallowed} = 0;
-        $g_eventtable_data{$table}{lastflush} = $ev_daemontime;
-        $g_eventtable_data{$table}{query} = "
-        INSERT $insertType INTO
-            hlstats_Events_$table
-            (
-                eventTime,
-                serverId,
-                map"
-                ;
+
+    while ( my ($table, $colsref) = each(%g_eventTables) ) {
+        $g_eventtable_data{$table}{queue}      = [];
+        $g_eventtable_data{$table}{nullallowed}= 0;
+        $g_eventtable_data{$table}{lastflush}  = $ev_daemontime;
+
+        my $prefix = "INSERT $insertType INTO hlstats_Events_$table\n"
+                   . "(\n    eventTime,\n    serverId,\n    map";
+
         my $j = 0;
-        foreach $i (@{$colsref})
-        {
-            $g_eventtable_data{$table}{query} .= ",\n$i";
-            if (substr($i, 0, 4) eq 'pos_') {
+        foreach my $col (@{$colsref}) {
+            $prefix .= ",\n    $col";
+            if (substr($col, 0, 4) eq 'pos_') {
                 $g_eventtable_data{$table}{nullallowed} |= (1 << $j);
             }
             $j++;
         }
-        $g_eventtable_data{$table}{query} .= ") VALUES\n";
+        $prefix .= "\n) VALUES\n";
+
+        $g_eventtable_data{$table}{query} = $prefix;
     }
 }
 
-#
-# void recordEvent (string table, array cols, bool getid, [mixed eventData ...])
-#
-# Queues an event for addition to an Events table, flushing when hitting table queue limit.
-#
 sub recordEvent {
     my ($table, $unused, @coldata) = @_;
 
     my $server    = $g_servers{$s_addr} or return;
     my $server_id = $server->{id};
     my $map       = $server->get_map // '';
-    my $ts        = $::ev_unixtime;  # unix seconds
+    my $ts        = $ev_unixtime;  # unix seconds
 
-    my @values = ($ts, $server_id, $map);
+    my @values = ("FROM_UNIXTIME($ts)", $server_id, quote_sql($map));
 
     my $nullmask = $g_eventtable_data{$table}{nullallowed} // 0;
     for my $j (0 .. $#coldata) {
         my $v = $coldata[$j];
         if ($nullmask & (1 << $j)) {
-            push @values, (defined($v) && $v ne '') ? $v : undef;
+            push @values, (defined($v) && $v ne '') ? quote_sql($v) : "NULL";
         } else {
-            push @values, defined($v) ? $v : '';
+            push @values, defined($v) ? quote_sql($v) : "''";
         }
     }
 
@@ -286,26 +276,27 @@ sub recordEvent {
 sub flushEventTable {
     my ($table) = @_;
     my $queue_ref = $g_eventtable_data{$table}{queue};
-    return unless @$queue_ref;
+    my $count     = scalar(@{$queue_ref});
+    $g_eventtable_data{$table}{lastflush} = $ev_daemontime;
+    return unless $count;
 
     my $query_prefix = $g_eventtable_data{$table}{query};
-    my $values = join(",", @$queue_ref);
-    my $full_query = $query_prefix . $values;
 
-    $g_eventtable_data{$table}{queue} = [];
-    $g_eventtable_data{$table}{lastflush} = $ev_daemontime;
+    my $values_sql = join(",\n",
+        map { "(" . join(",", @$_) . ")" } @$queue_ref
+    );
+
+    my $full_query = $query_prefix . $values_sql;
 
     eval {
         exec_now($full_query);
+        $g_eventtable_data{$table}{queue} = [];
+        printEvent("MYSQL", "Flushed $count events to '$table'", 4);
     };
     if ($@) {
         printEvent("MYSQL", "Flush failed for '$table': $@", 4);
-        # Optional: requeue or log failed batch
-    } else {
-        printEvent("MYSQL", "Flushed @{[scalar @$queue_ref]} events to '$table'", 4);
     }
 }
-
 
 #
 # array calcSkill (int skill_mode, int killerSkill, int killerKills, int victimSkill, int victimKills, string weapon)
@@ -1193,7 +1184,7 @@ sub getPlayerInfo
                     $g_servers{$s_addr}->updatePlayerCount();
                 }  
             } elsif (($g_mode eq "LAN") && (defined($g_lan_noplayerinfo{"$s_addr/$userid/$name"}))) {
-                if ((!$haveplayer) && ($uniqueid ne "UNKNOWN") && ($create_player > 0)) {
+                if ((!$haveplayer) && $uniqueid && ($uniqueid ne "UNKNOWN") && ($create_player > 0)) {
                     $g_servers{$s_addr}->{srv_players}->{"$userid/$uniqueid"} = new HLstats_Player(
                         server => $s_addr,
                         server_id => $g_servers{$s_addr}->{id},
@@ -1213,6 +1204,7 @@ sub getPlayerInfo
                 } 
             } else {
                 printEvent("PLAYER", "No player object available for player \"$name\" <U:$userid>",3);
+                return undef;
             }
         }
 
@@ -1477,7 +1469,6 @@ sub getLine
     return <STDIN>;
 }
 
-$print_addr = "";
 sub handleIncoming
 {
     my ($source, $s_output) = @_;
@@ -1485,9 +1476,8 @@ sub handleIncoming
     $s_output =~ s/^\s+//;
     $s_output =~ s/\s+$//;
     return unless length $s_output;
-    $print_addr = $s_addr;
     my($s_peerhost, $s_peerport) = split(/:/, $s_addr);
-    print "[$source] $s_output\n" if $g_debug == 2 || $g_debug == 9;
+    print "[$source] $s_output\n" if $g_debug == 2;
     # Proxy filter
     if (($s_output =~ /^.*PROXY Key=(.+) (.*)PROXY.+/) && $proxy_key ne "") {
         $rproxy_key = $1;
@@ -1503,8 +1493,10 @@ sub handleIncoming
 
         if ($proxy_key eq $rproxy_key) {
             $s_output =~ s/PROXY.*PROXY //;
-            if ($s_output =~ /^C;HEARTBEAT;/) {
-                printEvent("PROXY", "Heartbeat request from $proxy_s_peerhost:$proxy_s_peerport",1);
+            if ($s_output =~ /^C;UDP;/) {
+                printEvent("PROXY", "UDP ping request from $proxy_s_peerhost:$proxy_s_peerport",1);
+            } elsif ($s_output =~ /^L C;HTTP;/) {
+               printEvent("PROXY", "HTTP ping request from $proxy_s_peerhost:$proxy_s_peerport",1);
             } elsif ($s_output =~ /^C;RELOAD;/) {
                 printEvent("PROXY", "Reload request from $proxy_s_peerhost:$proxy_s_peerport",1);
             } elsif ($s_output =~ /^C;KILL;/) {
@@ -1535,8 +1527,14 @@ sub handleIncoming
         }
 
         $s_addr = "$address:$port";
+        
+        my $dest;
 
-        my $dest = sockaddr_in($port, inet_aton($address));
+        if ($data[1] eq "UDP") {
+            my $dest = sockaddr_in($port, inet_aton($address));
+            $msg="Replying back to Frontend...OK";
+            send($::udp_socket, $msg, 0, $dest); #reply to front end          
+        }
 
         if ($data[1] eq "RELOAD") {
             printEvent("CONTROL", "Re-Reading Configuration by request from Frontend...", 1);
@@ -1563,6 +1561,32 @@ sub handleIncoming
     $s_output =~ s/\[No.C-D\]//g;  # remove [No C-D] tag
     $s_output =~ s/\[OLD.C-D\]//g; # remove [OLD C-D] tag
     $s_output =~ s/\[NOCL\]//g;    # remove [NOCL] tag
+
+    # EXPLOIT FIX
+    if ($s_output =~ s/^(?:.*?)?L (\d\d)\/(\d\d)\/(\d{4}) - (\d\d):(\d\d):(\d\d)\.?(\d\d\d)?\s*[:-]\s*//) {
+        $ev_month = $1;
+        $ev_day   = $2;
+        $ev_year  = $3;
+        $ev_hour  = $4;
+        $ev_min   = $5;
+        $ev_sec   = $6;
+        $ev_time  = "$ev_hour:$ev_min:$ev_sec";
+        $ev_remotetime  = timelocal($ev_sec,$ev_min,$ev_hour,$ev_day,$ev_month-1,$ev_year);
+
+        if ($g_timestamp) {
+            my ($sec,$min,$hour,$mday,$mon,$year) = localtime($ev_unixtime);
+            $ev_timestamp = sprintf("%04d-%02d-%02d %02d:%02d:%02d", $year+1900, $mon+1, $mday, $hour, $min, $sec);
+            $ev_timestamp = "$ev_year-$ev_month-$ev_day $ev_time";
+            $ev_unixtime  = $ev_remotetime;
+            if ($g_stdin)
+            {
+                $ev_daemontime = $ev_unixtime;
+            }
+        }
+    } else {
+        printEvent("ERROR", "MALFORMED DATA: " . $s_output,9);
+        return;
+    }
 
     # default config for unknown servers
     if (!defined($g_servers{$s_addr})) {
@@ -1789,34 +1813,7 @@ sub handleIncoming
                 printEvent("SERVER", "Auto-updating hostname is disabled", 1);
             }
             $g_servers{$s_addr}->get_game_mod_opts();
-            # $srv->getSlots() if ($srv->{play_game} == CS2());
         }
-    }
-
-    # EXPLOIT FIX
-    if ($s_output =~ s/^(?:.*?)?L (\d\d)\/(\d\d)\/(\d{4}) - (\d\d):(\d\d):(\d\d)\.?(\d\d\d)?\s*[:-]\s*//) {
-        $ev_month = $1;
-        $ev_day   = $2;
-        $ev_year  = $3;
-        $ev_hour  = $4;
-        $ev_min   = $5;
-        $ev_sec   = $6;
-        $ev_time  = "$ev_hour:$ev_min:$ev_sec";
-        $ev_remotetime  = timelocal($ev_sec,$ev_min,$ev_hour,$ev_day,$ev_month-1,$ev_year);
-
-        if ($g_timestamp) {
-            my ($sec,$min,$hour,$mday,$mon,$year) = localtime($ev_unixtime);
-            $ev_timestamp = sprintf("%04d-%02d-%02d %02d:%02d:%02d", $year+1900, $mon+1, $mday, $hour, $min, $sec);
-            $ev_timestamp = "$ev_year-$ev_month-$ev_day $ev_time";
-            $ev_unixtime  = $ev_remotetime;
-            if ($g_stdin)
-            {
-                $ev_daemontime = $ev_unixtime;
-            }
-        }
-    } else {
-        printEvent("ERROR", "MALFORMED DATA: " . $s_output,9);
-        return;
     }
 
     $g_servers{$s_addr}->set("last_event", $ev_unixtime);
@@ -3002,7 +2999,6 @@ EOT
     }
 
     if (!$g_stdin && defined($g_servers{$s_addr}) && $ev_daemontime > $g_servers{$s_addr}->{next_plyr_flush}) {
-        printEvent("MYSQL", "Flushing player updates to database...",4);
         if ($g_servers{$s_addr}->{"srv_players"}) {
             while ( my($pl, $player) = each(%{$g_servers{$s_addr}->{"srv_players"}}) ) {
                 if ($player->{needsupdate}) {
@@ -3190,6 +3186,8 @@ $g_log_chat_admins = 0;
 $g_global_chat = 0;
 $g_ranktype = "skill";
 $g_gi = undef;
+$ev_unixtime = time();
+$ev_daemontime = $ev_unixtime;
 
 my %dysweaponcodes = (
     "1" => "Light Katana",
@@ -3463,9 +3461,10 @@ printEvent("HLSTATSZ", "Event queue size is set to ".$g_event_queue_size, 1);
 
 printEvent("HLSTATSZ", "HLstatsZ is now running ($g_mode mode, debug level $g_debug)", 1);
 
-$start_time = time();
+
 if ($g_stdin) {
     $g_timestamp       = 1;
+    $start_time        = time();
     $start_parse_time  = time();
     $import_logs_count = 0;
     printEvent("IMPORT", "Start importing logs. Every dot signs 500 parsed lines", 1);
@@ -3490,13 +3489,15 @@ if ($g_stdin) {
     flushAll(1);
     exec_now("UPDATE hlstats_Players SET last_event=UNIX_TIMESTAMP();");
     printEvent("IMPORT", "Import of log file complete. Scanned ".$import_logs_count." lines in ".($end_time-$start_time)." seconds", 1);
+    sleep(5);
+    exit(0);
 }
 
 # Cleaner!
 exec_now("TRUNCATE TABLE hlstats_Livestats");
 
 # Loop start
-our $s_addr = "";
+$s_addr = "";
 if ($g_stdin == 0) {
     # port open?
     $udpTime   = time();
@@ -3515,12 +3516,12 @@ if ($g_stdin == 0) {
     };
     if ($udp_socket) {
         $udp_socket->blocking(0);
-        printEvent("UDP", "Opening UDP listen socket on port:$s_port ... ok", 1);
+        printEvent("UDP", "Opening UDP listen socket on port:$s_port ... OK", 1);
         my $loop = Mojo::IOLoop->singleton;
         $loop->reactor->io($udp_socket => sub {
             $ev_unixtime   = time();
             $ev_daemontime = $ev_unixtime;
-            $udpTime      = $ev_unixtime;
+            $udpTime       = $ev_unixtime;
             $udpPulse      = 120;
             my ($reactor, $fd, $readable) = @_;
             my $data;
@@ -3544,20 +3545,18 @@ if ($g_stdin == 0) {
         undef;
     };
     if ( $daemon ) {
-        printEvent("HTTP", "Opening HTTP on port:$s_port ... ok", 1);
+        printEvent("HTTP", "Opening HTTP on port:$s_port ... OK", 1);
         $daemon->on(request => sub {
             $ev_unixtime   = time();
             $ev_daemontime = $ev_unixtime;
             $httpTime      = $ev_unixtime;
             $httpPulse     = 120;
             my ($daemon, $tx) = @_;
-            $s_addr = $tx->req->headers->header('X-Server-Addr') // 'unknown:0';
+            $s_addr = $tx->req->headers->header('X-Server-Addr') // ($tx->remote_address.":".$tx->remote_port);
             my @lines = split(/\r?\n/, $tx->req->body);
             foreach my $data (@lines) {
-                 if ($data =~ /^(?:L\s*)?(\d{2}\/\d{2}\/\d{4} - \d{2}:\d{2}:\d{2}(?:\.\d{3})?)/) {
-                    $data = "L $data" unless $data =~ /^L /;
-                    handleIncoming("HTTP", $data);
-                }
+                $data = "L $data" unless $data =~ /^L /;
+                handleIncoming("HTTP", $data);
             }
             $tx->res->code(200)->body("OK\n");
             $tx->resume;

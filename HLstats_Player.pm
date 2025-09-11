@@ -125,11 +125,11 @@ sub new
     $self->updateTrackable();
     $self->{plain_uniqueid} = $params{plain_uniqueid};
     $self->setUniqueId($params{uniqueid});
+    $self->setName($params{name});
+    $self->getAddress();
     if ($::g_stdin == 0 && ( ($self->{userid} > 0 || $::g_servers{$self->{server}}->{play_game} == CS2())) ) {
         $self->insertPlayerLivestats();
     }
-    $self->setName($params{name});
-    $self->getAddress();
     $self->flushDB();
 
     ::printEvent("MYSQL", "Created new player object " . $self->getInfoString(),4);
@@ -141,7 +141,7 @@ sub playerCleanup
     my ($self) = @_;
     $self->flushDB();
     $self->deleteLivestats();
-    ::printEvent("MYSQL", "Flush DB and delete Live stats",4);
+    ::printEvent("MYSQL", "Flush DB and delete player from Live stats",4);
 }
 
 
@@ -376,7 +376,7 @@ sub insertPlayerLivestats
     my @vals = ($self->{playerid}, $self->{server_id}, $self->{address}, $self->{plain_uniqueid},
                 $self->{name}, $self->{team}, $self->{ping}, $self->{connect_time}, $self->{skill}, $self->{flag});
     ::exec_cache("player_livestats_insert", $query, @vals);
-    ::printEvent("MYSQL", "Insert Player in Live Stats",4);
+    ::printEvent("MYSQL", "Insert Player in Live Stats $self->{name} ($self->{playerid})",4);
 }
 
 
@@ -398,7 +398,7 @@ sub setName
     my $server_address = $self->{server};
 
     if (($is_bot == 1) && ($::g_servers{$server_address}->{ignore_bots} == 1)) {
-        $self->{clan} = "";
+        $self->{clan} = 0;
     } else {
         $self->{clan} = ::getClanId($name);
     }
@@ -471,6 +471,7 @@ sub flushDB {
     my $is_stdin   = $::g_stdin ? 1 : 0;
     my $now        = $is_stdin ? $::ev_unixtime : time;
     my $last_upd   = $self->{last_update} // 0;
+    ::printEvent("MYSQL", "Flushing player $name ($playerid) <$server_address> to database...",4);
 
     # Compute connect-time increment
     my $add_connect_time = 0;
@@ -953,7 +954,7 @@ sub updateTrackable
 {
     my ($self) = @_;
     
-    if ((&::isTrackableTeam($self->{team}) == 0) || (($::g_servers{$self->{server}}->{ignore_bots} == 1) && (($self->{is_bot} == 1) || (($self->{userid} <= 0) && ($::g_servers{$self->{server}}->{play_game} != CS2())) || (($self->{userid} < 0) && ($::g_servers{$self->{server}}->{play_game} == CS2()))))) {
+    if ((::isTrackableTeam($self->{team}) == 0) || (($::g_servers{$self->{server}}->{ignore_bots} == 1) && (($self->{is_bot} == 1) || (($self->{userid} <= 0) && ($::g_servers{$self->{server}}->{play_game} != CS2())) || (($self->{userid} < 0) && ($::g_servers{$self->{server}}->{play_game} == CS2()))))) {
         $self->{trackable} = 0;
         return;
     }

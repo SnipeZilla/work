@@ -2178,7 +2178,8 @@ sub doEvent_Chat
                     }
                 }
                 
-                if (($hlx_command == 0) && ($log == 1)) {
+                #if (($hlx_command == 0) && ($log == 1)) {
+                if ( $log == 1 ) {
                     my $saytype = 1;
                     if ($msg_type eq "say_team") {
                         $saytype = 2;

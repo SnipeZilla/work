@@ -9,7 +9,7 @@
 # For current support and updates, visit: https://snipezilla.com or https://github.com/SnipeZilla
 
 # HLstatsZ release version number
-$g_version = "2.3.0a";
+$g_version = "2.3.0b";
 
 my %stmt_cache = ();
 %g_eventTables = (
@@ -60,6 +60,16 @@ my %stmt_cache = ();
 #         Common Functions         #
 ####################################
 
+sub quote_sql {
+    my ($val) = @_;
+    return "NULL" unless defined $val;
+    $val =~ s/\\/\\\\/g;   # replace \ with \\
+    $val =~ s/'/\\'/g;     # replace ' with \'
+    $val =~ s/\\/\\\\/g;   # replace \ with \\
+    $val =~ s/'/\\'/g;     # replace ' with \'
+    return "'$val'";
+}
+
 sub number_format {
   local $_  = shift;
   1 while s/^(-?\d+)(\d{3})/$1,$2/;
@@ -92,8 +102,8 @@ sub DB_connect {
             $dbh = DBI->connect(
                 $dsn, $db_user, $db_pass,
                 {
-                    RaiseError           => 0,
-                    PrintError           => 0,
+                    RaiseError           => 1,
+                    PrintError           => 1,
                     AutoCommit           => 1,
                     ($db_driver eq 'mysql' ? (
                         mysql_enable_utf8mb4   => 1,
@@ -355,7 +365,6 @@ sub setOptionsConf
 
 }
 
-
 #
 # string abbreviate (string thestring[, int maxlength)
 #
@@ -394,7 +403,7 @@ sub printEvent
         } else {
             my ($sec,$min,$hour,$mday,$mon,$year) = localtime(time);
             $timestamp = sprintf("%04d-%02d-%02d %02d:%02d:%02d", $year+1900, $mon+1, $mday, $hour, $min, $sec);
-            printf("%s %21s - %s: %s\n", $timestamp, $::print_addr, $code, $description);
+            printf("%s %21s - %s: %s\n", $timestamp, $s_addr, $code, $description);
         }
     }
 
