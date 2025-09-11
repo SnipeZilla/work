@@ -102,8 +102,8 @@ sub DB_connect {
             $dbh = DBI->connect(
                 $dsn, $db_user, $db_pass,
                 {
-                    RaiseError           => 1,
-                    PrintError           => 1,
+                    RaiseError           => 0,
+                    PrintError           => 0,
                     AutoCommit           => 1,
                     ($db_driver eq 'mysql' ? (
                         mysql_enable_utf8mb4   => 1,
