@@ -35,11 +35,6 @@ Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA  02111-1307, USA.
 
 For support and installation notes visit http://www.hlxcommunity.com
 */
-///////////////////////////////////////////////
-ini_set('log_errors', 'On');
-error_reporting(E_ALL & ~E_NOTICE);
-ini_set('error_log', '_error.txt');
-///////////////////////////////////////////////
 define('IN_HLSTATS', true);
 require('config.php');
 $historical_cache=0;
@@ -66,14 +61,6 @@ if($historical_cache==1)
 	}
 }
 
-session_set_cookie_params([
-    'lifetime' => 0,
-    'path' => __DIR__,
-    'domain' => '',
-    'secure' => isset($_SERVER['HTTPS']),
-    'httponly' => true,
-    'samesite' => 'Strict'
-]);
 session_start();
 
 if (!empty($_GET['logout']) && $_GET['logout'] == '1') {
