@@ -9,7 +9,7 @@
 # For current support and updates, visit: https://snipezilla.com or https://github.com/SnipeZilla
 
 # HLstatsZ release version number
-$g_version = "2.5.2b";
+$g_version = "2.5.2c";
 
 my %stmt_cache = ();
 %g_eventTables = (
@@ -148,8 +148,8 @@ sub exec_now {
     DB_connect();
 
     # Debug print
-    printEvent("MYSQL", "EXEC_NOW SQL: $sql", 1);
-    printEvent("MYSQL", "EXEC_NOW BIND: " . join(", ", map { defined($_) ? "'$_'" : "NULL" } @bind), 1);
+    printEvent("MYSQL", "EXEC_NOW SQL: $sql", 4);
+    printEvent("MYSQL", "EXEC_NOW BIND: " . join(", ", map { defined($_) ? "'$_'" : "NULL" } @bind), 4);
 
     my $ok = eval {
         $dbh->do($sql, undef, @bind);
