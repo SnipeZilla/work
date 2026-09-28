@@ -4,8 +4,6 @@ Player and clan rankings, awards, live servers and bans, read from the database 
 
 Modern yet familiar: a clean, responsive, AJAX-first layout that keeps the original HLstats feel.
 
-<!-- Screenshot: the home page -->
-
 ---
 
 ## Features
@@ -125,7 +123,7 @@ HLstatsZ uses the same database.
 **Where do PHP errors go?**  
 With `DEBUG` set to `true` in `config.php`, into `_error.txt` next to it.
 
-**How do I turn on a seasonal theme (Halloween, Winter)?**  
+**How do I turn on a seasonal theme (Halloween, Noel)?**  
 Move its folder from `styles/themes/disabled/` up to `styles/themes/`, e.g. `styles/themes/disabled/halloween` to `styles/themes/halloween`. To show it to every visitor, make it the default theme in *HLstats Settings*. Move it back when the season is over.
 
 **Do I need the SourceBans or AMXBans website?**  
@@ -147,7 +145,6 @@ HLstats (Simon Garner)
 
 Based on HLstatsX:CE 1.6.19  
 Maintained and modernized by [SnipeZilla](https://github.com/SnipeZilla)  
-Validation and help by [ghost-](https://github.com/ghostt187)  
 Built with Chart.js, pChart, Leaflet and OpenStreetMap. This product includes GeoLite2 data created by MaxMind, available from https://www.maxmind.com.
 
 Support: [snipezilla.com](https://snipezilla.com) · [AlliedModders forum](https://forums.alliedmods.net/forumdisplay.php?f=156)
