@@ -64,7 +64,7 @@ define('DB_PASS', 'yourpassword');
 define('DB_NAME', 'hlstats');
 define('SECRET_KEY', '');   // 64 random letters and digits
 ```
-Generate your own secret key with `php -r "echo bin2hex(random_bytes(32));"`.
+Generate your own secret key with `php -r "echo bin2hex(random_bytes(32));"` or at https://passwords-generator.org/ (Password Length: 64, Lowercase Characters, Uppercase Characters, Numbers)
 
 ### Steam sign-in (recommended)
 Admins sign in with their Steam account instead of a password. It is the safest way into the admin panel:
