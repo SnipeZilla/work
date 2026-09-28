@@ -25,7 +25,7 @@ Modern yet familiar: a clean, responsive, AJAX-first layout that keeps the origi
 - No SourceBans or AMXBans website needed: bans, admins and servers are managed from HLstatsZ, which also creates their databases
 
 **Community**
-- Secure Steam sign-in
+- Sign in with Steam: no account or password to create
 - Discord, TeamSpeak 3 and Mumble servers, Steam Community group
 
 **Look**
@@ -35,8 +35,8 @@ Modern yet familiar: a clean, responsive, AJAX-first layout that keeps the origi
 - Plain CSS, JS and PHP, easy to customize
 
 **Admin panel**
+- **Admins sign in with Steam**: no admin password on the site to guess, share or steal
 - Installer: the database, its tables and your first admin, in one step
-- Admins sign in with Steam: no password to share
 - Database updater, daemon control, RCON console (also for servers HLstatsZ doesn't track)
 - Game, server, award, rank and ban settings
 - Database tools: optimize, reset, fix collations, repair double-encoded text
@@ -68,7 +68,22 @@ define('SECRET_KEY', '');   // 64 random letters and digits
 ```
 Generate your own secret key with `php -r "echo bin2hex(random_bytes(32));"`.
 
-For Steam sign-in, add a [Steam Web API key](https://steamcommunity.com/dev/apikey) (`STEAM_API`) and the SteamID64 of your admins (`STEAM_ADMIN`).
+### Steam sign-in (recommended)
+Admins sign in with their Steam account instead of a password. It is the safest way into the admin panel:
+- The site keeps no admin password: Steam checks who signs in, with Steam Guard codes when the account uses them.
+- Who is an admin is set in `config.php`, which only you can change.
+- The username/password login is turned off: nothing is left to guess.
+
+```php
+define('STEAM_API', '');     // your Steam Web API key: https://steamcommunity.com/dev/apikey
+define('STEAM_ADMIN', '');   // your SteamID64, '76561197960287930', or a list: ['7656…', '7656…']
+```
+Your SteamID64 is the number in the address of your Steam profile (`steamcommunity.com/profiles/7656…`); with a custom address, look it up on [steamid.io](https://steamid.io). Set both before installing: the installer then creates no password login at all.
+
+Steam sign-in also turns on what needs to know who is who: the SourceBans admin pages, kick, ban and unban from the servers list, and the *Your status* card where players see their own bans.
+
+> [!IMPORTANT]
+> `SECRET_KEY` signs the Steam sign-in. Whoever knows it can sign in as any account, admins included: use your own, and keep it private.
 
 ### Database
 Using the daemon's database? There is nothing to install: HLstatsZ opens it as it is.
@@ -76,13 +91,10 @@ Using the daemon's database? There is nothing to install: HLstatsZ opens it as i
 For a new one, open the site: the installer takes over. It creates the database when it doesn't exist (if `DB_USER` may), then its tables and your first admin, and updates it to the latest version, in one step. To show the site is yours, it asks for the database password of `config.php`.
 
 > [!NOTE]
-> From the command line instead: `mysql -u root -p hlstats < sql/install.sql`, then *Admin › Tools › Updater*. The login is then **admin / 123456**: change it in *Admin Users* right away.
+> From the command line instead: `mysql -u root -p hlstats < sql/install.sql`, then *Admin › Tools › Updater*. The login is then **admin / 123456**: turn on Steam sign-in, which switches it off, or at least change the password in *Admin Users* right away.
 
 ### First visit
-Open `hlstats.php?mode=admin`. The first page checks PHP, its extensions and the folders, and offers to update the database to the latest version.
-
-> [!TIP]
-> Once `STEAM_API` and `STEAM_ADMIN` are set, the password login is off and admins sign in with Steam.
+Sign in with Steam at the top right of the site, then click **admin** (without Steam sign-in, open `hlstats.php?mode=admin`). The first page checks PHP, its extensions and the folders, and offers to update the database to the latest version.
 
 ### Bans (optional)
 Set `DB_SBNAME` (SourceBans / SourceBans++) and/or `DB_AMXNAME` (AMXBans) in `config.php`, with their table prefix (`DB_SBPREFIX`, `DB_AMXPREFIX`). Their databases must be on the same MySQL server; HLstatsZ's own database will do. Then open *Admin › Bans › Bans Settings*: when a database or its tables don't exist yet, it creates them with that prefix, and makes you the SourceBans owner.
@@ -104,6 +116,7 @@ HLstatsZ uses the same database.
 2. Point `config.php` at it, open the admin panel and click **Update**.
 3. Collation errors? *Admin › Tools › Reset DB Collations*.
 4. Garbled accents in names (`Ã©` instead of `é`)? *Admin › Tools › Repair Double-Encoded Text*.
+5. Turn on [Steam sign-in](#steam-sign-in-recommended): the old admin passwords stop working.
 
 ---
 
