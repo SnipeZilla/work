@@ -107,50 +107,6 @@ HLstatsZ uses the same database.
 
 ---
 
-## Screenshots
-
-<!-- New: the bans dashboard with the "Your status" card -->
-<!-- New: the admin RCON console -->
-
-### Weapons
-<img width="720" height="701" alt="Weapons page" src="https://github.com/user-attachments/assets/6ca66c72-ba13-4173-8e52-c67262e23fb8" />
-
-### Players
-<img width="1135" height="1010" alt="Players ranking" src="https://github.com/user-attachments/assets/31692605-3a53-4260-9038-f9a756c0a0c6" />
-
-### Game
-<img width="1214" height="333" alt="Game overview" src="https://github.com/user-attachments/assets/8cb79d51-5a1e-4b43-ad0f-882dc4ccacb2" />
-
-### Awards
-<img width="1162" height="949" alt="Awards page" src="https://github.com/user-attachments/assets/c8f8fba4-1f9c-43fa-a30d-41864a91eedd" />
-
-### A theme for everyone
-<img width="1166" height="455" alt="The themes" src="https://github.com/user-attachments/assets/510d22e4-5c29-4685-96f0-12e0298fc8a3" />
-
-### Player information
-<!-- Update: the new profile header -->
-<img width="1165" height="1103" alt="Player profile" src="https://github.com/user-attachments/assets/c060b256-2c79-474e-a2fc-5fb17ddbaf8e" />
-
-### Hitboxes (superlogs)
-<img width="1143" height="455" alt="Hitbox statistics" src="https://github.com/user-attachments/assets/177f14bb-4b82-4d46-8f43-0995a6ad9514" />
-
-### Admin — overview
-<img width="1172" height="637" alt="Admin panel overview" src="https://github.com/user-attachments/assets/63e3821c-daf9-4d34-bed7-01efad5acb86" />
-
-### Admin — server management
-<img width="1356" height="1307" alt="Admin server management" src="https://github.com/user-attachments/assets/526de317-37ce-4a4d-bded-30b17558597d" />
-
-### Discord
-<img width="1609" height="332" alt="Discord server widget" src="https://github.com/user-attachments/assets/2447aed3-cd20-43ad-a0d5-9e0bb44d5ddd" />
-
-### Responsive and AJAX
-<img width="400" height="832" alt="Phone view" src="https://github.com/user-attachments/assets/a13e6684-e69b-48a4-93c2-11f71ba83627" />
-
-### Translations
-<img width="953" height="408" alt="Language picker" src="https://github.com/user-attachments/assets/2df853e9-e509-4d12-8654-15b350f752cd" />
-
----
-
 ## FAQ
 
 **Where do PHP errors go?**  
