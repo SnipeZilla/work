@@ -131,7 +131,8 @@ Move its folder from `styles/themes/disabled/` up to `styles/themes/`, e.g. `sty
 No. HLstatsZ shows and manages bans, admins and servers itself. You need their database, which HLstatsZ creates (*Admin › Bans › Bans Settings*), and their plugin on your game servers.
 
 ---
-<img width="1137" height="1299" alt="image" src="https://github.com/user-attachments/assets/94c9af2a-37af-4378-b1ee-717da6380522" />
+<img width="1195" height="1296" alt="image" src="https://github.com/user-attachments/assets/0b4504c0-b0d2-4dc5-94c5-6c4afa161f9a" />
+<img width="1182" height="831" alt="image" src="https://github.com/user-attachments/assets/d3b2f2e3-4823-4382-8f96-39d856b6c326" />
 
 ---
 ## Lineage
