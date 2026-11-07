@@ -49,7 +49,7 @@ HLstatsZ writes to the database all the time. With these settings, MariaDB or My
 small VPS to a big server with many game servers.
 
 `These values fit a small VPS: 2 GB of RAM and 2 cores`
-`
+````
 [mysqld]
 default_storage_engine         = InnoDB
 
@@ -69,7 +69,7 @@ innodb_io_capacity_max         = 4000
 # The number of CPU cores (not threads)
 innodb_read_io_threads         = 8
 innodb_write_io_threads        = 8
-`
+````
 
 `These values fit dedicated machine: 64 GB of RAM and 8 cores`
 ```
